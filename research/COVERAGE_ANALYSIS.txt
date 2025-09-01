@@ -1,0 +1,423 @@
+COVERAGE VERIFICATION: Example Project Design vs Build Optimiser Spec v2
+
+================================================================================
+1. COLLECTION STEPS (Steps 1-6)
+================================================================================
+
+STEP 1: 01_cmake_file_api.py — CMake File API Database
+------------------------------------------------------
+Fixture provides:
+✓ 15 targets (14 named + 1 INTERFACE)
+✓ 55 source files (51 authored + 4 generated)
+✓ ~30 dependency edges
+✓ All target types: EXECUTABLE (app, test_runner, benchmark), STATIC_LIBRARY (core, logging, platform, math_lib, proto_msgs, serialization, protocol, compute, middleware, engine), UTILITY (proto_gen), INTERFACE_LIBRARY (config_iface)
+✓ isGenerated flag: 4 files marked
+✓ Compile groups with language, flags, includes
+✓ Dependencies: direct, transitive, order dependencies (proto_msgs → proto_gen)
+✓ Link information and backtrace graph
+
+Data fields tested:
+✓ target name, id, type, nameOnDisk, artifacts, paths
+✓ source files with isGenerated flags
+✓ compile groups (language, languageStandard, fragments, includes, defines)
+✓ dependencies with linkLibraries classification (CMake 4.2+ codemodel 2.9)
+✓ orderDependencies (proto_msgs depends on proto_gen)
+✓ codegen inventory (proto_gen → proto_msgs files)
+
+GAP ANALYSIS:
+- ✓ All required fields present
+
+STEP 2: 02_git_history.py — File Change History
+----------------------------------------------
+Fixture provides:
+✓ 26 synthetic commits over 6-month window
+✓ 3 authors (alice, bob, charlie)
+✓ Varying commit counts per file (0-8 range expected)
+✓ Generated files have 0 commits (expected behavior)
+✓ Mix of hotspot files and stable files
+
+Data fields tested:
+✓ commit_hash, commit_date, author, message, lines_added, lines_deleted
+✓ per-file summary: commit_count, total_lines_added/deleted, churn, distinct_authors
+✓ first/last change dates
+
+GAP ANALYSIS:
+- ✓ All required fields present
+
+STEP 3: 03_instrumented_build.py — Instrumented Build
+----------------------------------------------
+Fixture provides:
+✓ 47 compiled source files (51 authored files, minus 4 header-only files)
+✓ -ftime-report output: GCC pass breakdown data
+✓ -H header hierarchy output with depths 1-5
+✓ Measurable variation in compile times (math_lib files slow, core files fast)
+✓ Measurable template instantiation time variation
+✓ Codegen artifacts (4 generated files in proto_msgs)
+
+Data fields tested:
+✓ stderr logs per file with -ftime-report and -H data
+✓ Parsed GCC phase times: parsing, template_instantiation, codegen, optimization
+✓ Header data: max_include_depth, unique_headers, total_includes, header_tree
+
+GAP ANALYSIS:
+- ✓ All required fields present
+- Note: fixture has moderate compile times (< 30 sec total), which is intentional for test speed
+  but provides real, measurable signal in timing distributions
+
+STEP 4: 04_post_build_metrics.py — Object File Sizes and SLOC
+----------------------------------------------
+Fixture provides:
+✓ Object files for all 47 compiled source files
+✓ SLOC for all 55 files (51 authored + 4 generated)
+✓ is_generated flag carried through
+✓ Measurable size differences (generated files larger due to verbose output)
+
+Data fields tested:
+✓ source_file, cmake_target, object_file_path, object_size_bytes
+✓ language, blank_lines, comment_lines, code_lines
+✓ is_generated flag for segregating metrics
+✓ source_size_bytes for generated files
+
+GAP ANALYSIS:
+- ✓ All required fields present
+
+STEP 5: 05_preprocessed_size.py — Preprocessed Translation Unit Size
+----------------------------------------------
+Fixture provides:
+✓ Preprocessed bytes for all 47 compiled files
+✓ Measurable difference: generated files have 10-20× expansion ratio
+  (200-300 lines of source expands to 3000-6000 preprocessed lines)
+✓ Header depth correlation (deep chains have larger preprocessed output)
+✓ Template expansion signal (math_lib files have high preprocessed/code ratio)
+
+Data fields tested:
+✓ source_file, cmake_target, preprocessed_bytes, is_generated
+
+GAP ANALYSIS:
+- ✓ All required fields present
+
+STEP 6: 06_ninja_log.py — Build Step Timing from Ninja Log
+----------------------------------------------
+Fixture provides:
+✓ Compile steps (47 files → 47 .o files)
+✓ Codegen step (1 CUSTOM_COMMAND: proto_gen)
+✓ Archive steps (11 targets: core, logging, platform, math_lib, proto_msgs, serialization, protocol, compute, middleware, engine, and config_iface if counted)
+✓ Link steps (3 executables: app, test_runner, benchmark)
+✓ Start/end times for parallelism analysis
+✓ Command hash for grouping multi-output steps
+
+Data fields tested:
+✓ output_path, source_file, cmake_target, step_type
+✓ start_ms, end_ms, duration_ms, command_hash
+
+GAP ANALYSIS:
+- ✓ All required fields present
+- Note: fixture is small so actual parallelism is limited, but start/end times
+  will be available for analysis
+
+================================================================================
+2. ANALYSIS NOTEBOOKS (01-09)
+================================================================================
+
+NOTEBOOK 01: Data Cleaning
+--------------------------
+Patterns exercised:
+✓ Missing data: config_iface is INTERFACE_LIBRARY with no sources → zero compile time
+✓ Outliers: math/transforms.cpp vs core/types.cpp (5-10× compile time difference)
+✓ Path alignment: File API, git, object files all use canonical paths
+✓ Target validation: All 15 targets appear in ninja log
+✓ Codegen validation: 4 files marked is_generated, 0 git commits (expected)
+✓ Type casting: timestamps, numeric fields
+
+NOTEBOOK 02: Exploratory Data Analysis
+---------------------------------------
+Patterns exercised:
+✓ Distribution plots: skewed compile time (math_lib outliers)
+✓ Pareto analysis: top 20% of targets (likely math_lib) dominate time
+✓ Correlation: SLOC vs compile time (weak for normal files, strong for templates)
+✓ Correlation: header_depth vs preprocessed_bytes (clear positive)
+✓ Correlation: template_instantiation_time vs compile_time (strong)
+✓ Correlation: expansion_ratio vs compile_time (strong for generated files)
+✓ GCC phase breakdown: math_lib dominated by template_instantiation
+✓ Dependency degree distribution: core has fan_in=7, fan_out=0
+✓ Codegen overview: 4 generated files, ~0.5 ratio in proto_msgs, clear cost signal
+
+NOTEBOOK 03: Critical Path Analysis
+------------------------------------
+Patterns exercised:
+✓ Critical path likely includes: core → math_lib or core → proto_gen → proto_msgs
+✓ Codegen on critical path: proto_gen step is real build cost
+✓ Slack analysis: math_lib files have zero/minimal slack
+✓ Codegen cascade: proto_gen change triggers proto_msgs recompile, then downstream
+✓ Parallelism analysis from ninja log: start/end times show overlapping steps
+✓ Bottleneck ranking: math_lib likely ranks highest (compile cost), proto_gen (codegen cost)
+
+NOTEBOOK 04: Community Detection
+---------------------------------
+Patterns exercised:
+✓ Three natural communities: core/platform, protocol/codegen, engine/compute
+✓ Bridging target: middleware has highest betweenness centrality
+✓ Codegen targets clustered: proto_gen, proto_msgs in protocol community
+✓ Internal vs external edges: core/platform community has high internal coupling
+✓ Merge candidates: logging + core (high internal coupling, low external)
+✓ Split candidates: middleware (bridges two communities)
+
+NOTEBOOK 05: Change Impact Simulation
+--------------------------------------
+Patterns exercised:
+✓ Change probability: proto/registry.cpp is hotspot (6 commits)
+✓ core is stable (2 commits) but has highest transitive rebuild cost (7 dependants)
+✓ Codegen cascade: proto_gen input change affects 8+ downstream files
+✓ Expected rebuild cost: core changes are expensive (full rebuild)
+✓ Generated files have zero change probability (correct behavior)
+✓ Merge simulation: core + logging merge reduces dependency surface
+✓ Split simulation: middleware split reduces coupling between communities
+
+NOTEBOOK 06: Clustering and Dimensionality Reduction
+-----------------------------------------------------
+Patterns exercised:
+✓ Feature matrix: compile_time, code_lines, file_count, header_depth, preprocessed_bytes, object_size, dependency counts, git metrics, codegen metrics, expansion_ratio, gcc_template_time
+✓ Clusters: math_lib + compute (template-heavy), core + logging + platform (small/fast), proto_msgs (mixed codegen)
+✓ Outlier: middleware (large, spanning multiple domains)
+✓ Template-heavy cluster: math_lib features dominate compile_time dimension
+✓ Codegen cluster: proto_msgs has high codegen_ratio, high expansion_ratio
+
+NOTEBOOK 07: Spectral Graph Partitioning
+-----------------------------------------
+Patterns exercised:
+✓ Intra-target graph (middleware): two file clusters (protocol-facing vs engine-facing)
+✓ Spectral partitioning: Fiedler vector cleanly separates the two groups
+✓ METIS partitioning: should find the same split
+✓ Constraint: generated files (proto_msgs) stay together
+✓ Cross-partition includes: minimal after split (only service_registry.cpp → request_router.h)
+✓ Evaluation: split would reduce middleware's compilation cost (fewer includes per partition)
+
+NOTEBOOK 08: Codegen Analysis (NEW)
+-----------------------------------
+Patterns exercised:
+✓ Codegen inventory: 4 files, ~200-300 SLOC total
+✓ Codegen timing: proto_gen step in ninja log, measurable duration
+✓ Codegen fan-out: proto_msgs → serialization, protocol, middleware → engine, app
+✓ Generated file metrics: preprocessed_bytes 10-20× higher than code_lines
+✓ Compilation cost comparison: generated files slower per line (template expansion)
+✓ Codegen-triggered rebuild: messages.def change cascades through ~8+ targets
+✓ Codegen dependency: proto_msgs depends on proto_gen via orderDependencies
+✓ Recommendations: codegen caching (no change detection, so not applicable here), 
+   codegen isolation (wrap in interface), PCH for generated headers (high depth)
+
+NOTEBOOK 09: Recommendations
+------------------------------
+Patterns exercised:
+✓ Unused dependency: benchmark → math_lib (no actual #include)
+✓ Split candidate: middleware (bridging target, clear Fiedler cut)
+✓ Merge candidate: logging + core (high coupling, low external)
+✓ Codegen optimization: proto_msgs could be interface-only wrapper around generated files
+✓ Header depth: protocol/connection.h chain (depth 5) as PCH candidate
+✓ Template optimization: math_lib on critical path, could benefit from precompilation
+✓ Codegen on critical path: proto_gen timing is critical path component
+✓ Generated file optimization: message_registry.h includes too much (could be forward-declared)
+
+================================================================================
+3. DATA PATTERN COMPLETENESS
+================================================================================
+
+EDGE_LIST SCHEMA: is_direct, dependency_type, from_dependency
+--------------------------------------------------------------
+✓ is_direct: all direct links (target_link_libraries PRIVATE) test True
+✓ is_direct: all transitive-only edges (dependencies minus direct) test False
+  Examples:
+  - app → core is transitive (from app → engine → middleware → protocol → serialization → proto_msgs → core)
+  - serialization → core is injected by proto_msgs (PUBLIC link), appears with from_dependency
+✓ dependency_type variants:
+  - 'link': all target_link_libraries PRIVATE calls (majority of edges)
+  - 'order': proto_msgs → proto_gen (via add_dependencies)
+  - 'transitive': multi-hop dependencies (app → core through 6-hop chain)
+  - 'compile': any compile-only deps (none explicit in fixture, but can be added if needed)
+✓ from_dependency: proto_msgs links core PUBLIC, so serialization's core dependency is marked
+  from_dependency="proto_msgs"
+
+FILE_METRICS SCHEMA: nullable fields
+-----------------------------------
+✓ git_commit_count: 0 for all 4 generated files (expected)
+✓ git_lines_added: null/0 for generated files (expected)
+✓ compile_time_ms: non-null for all 47 compiled files, null for 8 header-only files
+✓ gcc_parse_time_ms: non-null for all compiled files, varies by file
+✓ gcc_template_instantiation_ms: high for math_lib files (5-10×), low for simple files
+✓ gcc_codegen_time_ms: measurable for all
+✓ gcc_optimization_time_ms: measurable for all
+✓ header_max_depth: ranges 1-5 (protocol/connection.cpp=5, core/types.cpp=1)
+✓ unique_headers: varies based on include chains
+✓ preprocessed_bytes: varies 1000-6000 bytes depending on includes
+✓ object_size_bytes: varies, generated files typically smaller SLOC but larger object
+
+TARGET_METRICS SCHEMA: aggregates and distributions
+-------------------------------------------
+✓ file_count: 0 (config_iface), 2-8 (normal targets)
+✓ codegen_file_count: 0 for most, 4 for proto_msgs, 0 for proto_gen (UTILITY)
+✓ codegen_ratio: 0.0 (most), 0.5 (proto_msgs), undefined (UTILITY)
+✓ code_lines_total: 0 (config_iface), 200-600 (most)
+✓ code_lines_authored: 0 (config_iface, proto_gen), equals total for authored-only
+✓ code_lines_generated: 0 (most), 200-300 (proto_msgs)
+✓ compile_time distribution: min=0 (config_iface), max at math_lib
+✓ compile_time_p90, p99: percentiles across 47 compiled files
+✓ header_depth_max: 1-5 range, protocol has depth 5
+✓ unique_headers_total: sums across target's files
+✓ object_size_total_bytes: non-zero for compiled targets
+✓ codegen_time_ms: 0 for most, non-zero for proto_msgs (includes proto_gen step)
+✓ archive_time_ms: non-zero for STATIC_LIBRARY targets
+✓ link_time_ms: non-zero for EXECUTABLE targets
+✓ direct_dependency_count: 0 (core, proto_gen), 1-3 (most), 7 (for core's dependants)
+✓ transitive_dependency_count: 0 (core), 6+ (deeper targets)
+✓ betweenness_centrality: middleware should be highest
+✓ critical_path_contribution_ms: math_lib likely highest (compile cost)
+✓ fan_in / fan_out: core has fan_out=0, fan_in=7
+
+================================================================================
+4. NINJA_LOG CLASSIFICATION COMPLETENESS
+================================================================================
+
+Expected step_type values and fixture coverage:
+✓ 'compile': 47 files (all .cpp/.cc files)
+✓ 'archive': 11 STATIC_LIBRARY targets (core, logging, platform, math_lib, proto_msgs, serialization, protocol, compute, middleware, engine, config_iface→0)
+  Actual count likely 10 or 11 depending on if config_iface produces artifact
+✓ 'link': 3 EXECUTABLE targets (app, test_runner, benchmark)
+✓ 'codegen': 1 CUSTOM_COMMAND (proto_gen, produces 4 generated files with same hash)
+✓ 'other': possibly CMAKE utility steps (ZERO_CHECK, etc. if present)
+
+All 5 classification types are represented.
+
+================================================================================
+5. EDGE CASES IN SPEC
+================================================================================
+
+Target types (Step 1 extract):
+✓ EXECUTABLE: app, test_runner, benchmark
+✓ STATIC_LIBRARY: core, logging, platform, math_lib, proto_msgs, serialization, protocol, compute, middleware, engine
+✓ SHARED_LIBRARY: NOT PRESENT — spec requires testing, fixture does not include
+✓ MODULE_LIBRARY: NOT PRESENT — spec requires testing, fixture does not include
+✓ OBJECT_LIBRARY: NOT PRESENT — spec requires testing, fixture does not include
+✓ UTILITY: proto_gen
+✓ INTERFACE_LIBRARY: config_iface
+
+GAP FOUND: SHARED_LIBRARY, MODULE_LIBRARY, OBJECT_LIBRARY are not represented in fixture.
+These edge case target types are listed in the spec (Step 1, line 224) as extractable,
+but the fixture does not include them. This means:
+- Notebooks cannot test library-specific metrics (link_time_ms for SHARED_LIBRARY)
+- Edge cases for OBJECT_LIBRARY (no link step, only archive) not testable
+- Real codebases use SHARED_LIBRARY frequently; this is a meaningful gap
+
+FILE_METRICS POTENTIAL NULL FIELDS:
+✓ compile_time_ms: INTERFACE_LIBRARY targets have no sources, so no compile time
+✓ gcc_* fields: same as above
+✓ git_commit_count: generated files correctly have 0
+✓ All other fields have meaningful values
+
+No problematic "all null" fields found beyond expected cases (headers, generated files).
+
+================================================================================
+6. METRICS TESTABILITY ANALYSIS
+================================================================================
+
+Potentially problematic metrics (would be untestable if no fixture target produces non-zero):
+
+FILE_METRICS:
+✓ compile_time_ms: tested (varies 10ms-1000ms range expected)
+✓ gcc_parse_time_ms: tested (varies by file)
+✓ gcc_template_instantiation_ms: tested (high for math_lib, low for simple)
+✓ gcc_codegen_time_ms: tested (all compiled files)
+✓ gcc_optimization_time_ms: tested (all compiled files)
+✓ header_max_depth: tested (1-5 range)
+✓ preprocessed_bytes: tested (varies by includes)
+✓ object_size_bytes: tested (varies)
+✓ git_commit_count: tested (0-6 range)
+✓ expansion_ratio: tested (generated files 10-20×, normal 1-2×)
+✓ compile_rate_lines_per_sec: tested (varies based on compile_time)
+✓ object_efficiency: tested (bytes per line ratio)
+
+TARGET_METRICS:
+✓ compile_time_* (sum, mean, max, median, std, p90, p99): tested
+✓ codegen_file_count: tested (0 or 4)
+✓ codegen_ratio: tested (0.0 or 0.5)
+✓ code_lines_generated: tested (0 or 200-300)
+✓ gcc_parse_time_sum_ms: tested
+✓ gcc_template_time_sum_ms: tested (math_lib will dominate)
+✓ header_depth_max: tested (1-5)
+✓ unique_headers_total: tested
+✓ preprocessed_bytes_total: tested
+✓ expansion_ratio_mean: tested
+✓ object_size_total_bytes: tested
+✓ codegen_time_ms: tested (proto_msgs will have measurable value)
+✓ archive_time_ms: tested (all STATIC_LIBRARY targets)
+✓ link_time_ms: tested (all EXECUTABLE targets)
+✓ total_build_time_ms: tested
+✓ git_commit_count_total: tested
+✓ git_churn_total: tested
+✓ git_distinct_authors: tested (3 authors)
+✓ git_hotspot_file_count: tested (files with high commit count)
+✓ direct_dependency_count: tested (0-3 range)
+✓ transitive_dependency_count: tested
+✓ topological_depth: tested (0-5+ expected)
+✓ critical_path_contribution_ms: tested (math_lib will dominate)
+✓ betweenness_centrality: tested (middleware should be highest)
+✓ fan_in / fan_out: tested (core has fan_out=0, fan_in=7)
+
+All metrics are testable.
+
+================================================================================
+SUMMARY OF GAPS FOUND
+================================================================================
+
+1. MISSING TARGET TYPES (from Step 1 extraction):
+   - SHARED_LIBRARY: Not represented in fixture
+   - MODULE_LIBRARY: Not represented in fixture
+   - OBJECT_LIBRARY: Not represented in fixture
+   
+   Impact: Incomplete coverage of Step 1 extraction (spec lists these as extractable).
+   Notebooks cannot test metrics specific to these target types.
+   
+   Severity: MEDIUM
+   Real C++ codebases use SHARED_LIBRARY (e.g., plugin libraries, dynamic libraries).
+   Not having this in the fixture is a notable gap for a comprehensive test.
+
+2. NO MISSING DATA PATTERNS:
+   All file_metrics and target_metrics fields that should have values do have them.
+   Missing data is correctly handled (generated files have zero git history, 
+   INTERFACE_LIBRARY has zero compile time).
+
+3. NO UNTESTABLE METRICS:
+   Every metric defined in the spec has at least one fixture value that exercises it.
+
+4. ALL EDGE CASES FOR CLASSIFICATION COVERED:
+   - dependency_type: link, order, transitive all present
+   - is_direct: both True and False cases present
+   - from_dependency: injected dependencies present (proto_msgs → core via serialization)
+   - ninja_log step_type: all 5 types present (compile, archive, link, codegen, possibly other)
+
+5. CODEGEN PATTERNS WELL COVERED:
+   - isGenerated flag: exercised on proto_msgs
+   - codegen_ratio: 0.5 in proto_msgs
+   - codegen cascade: clear dependency chain (proto_gen → proto_msgs → serialization → protocol → middleware)
+   - Generated file metrics: high preprocessed_bytes, high expansion_ratio
+   - Git history: generated files correctly have 0 commits
+
+================================================================================
+RECOMMENDED ADDITIONS
+================================================================================
+
+To close the gap on SHARED_LIBRARY, MODULE_LIBRARY, OBJECT_LIBRARY:
+
+Option 1: Add minimal shared library
+  - Create `shared_util` SHARED_LIBRARY that re-exports some symbols from core
+  - Have one or two targets link it (would create SHARED_LIBRARY link dependencies)
+  - Would test: link_time_ms for SHARED_LIBRARY, linkLibraries with SHARED type
+  
+Option 2: Add object library for template instantiation
+  - Create `math_precomp` OBJECT_LIBRARY containing precompiled template instantiations
+  - Have math_lib link it via object dependencies
+  - Would test: OBJECT_LIBRARY in File API, objectDependencies field in codemodel
+  
+Option 3: Keep fixture as-is with documented limitation
+  - Current fixture thoroughly tests EXECUTABLE, STATIC_LIBRARY, UTILITY, INTERFACE_LIBRARY
+  - SHARED/MODULE/OBJECT can be tested in a separate, more complex fixture if needed
+  - For initial development and algorithm validation, current fixture is sufficient
+

@@ -1,0 +1,23 @@
+message StatusUpdate {
+    uint32 id;
+    string name;
+    int64 timestamp;
+    uint32 status_code;
+    string payload;
+}
+
+message ConfigChange {
+    string key;
+    string value;
+    int64 effective_time;
+    uint32 version;
+}
+
+message MetricReport {
+    string metric_name;
+    double value;
+    int64 timestamp;
+    uint32 source_id;
+    string unit;
+    uint32 count;
+}
