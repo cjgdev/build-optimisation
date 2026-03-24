@@ -177,3 +177,103 @@ def aggregate_file_to_target(
         },
     )
     return result.reset_index()
+
+
+def merge_codegen_into_file_metrics(
+    file_df: pd.DataFrame,
+    codegen_df: pd.DataFrame,
+    source_dir: str = "",
+) -> pd.DataFrame:
+    """Join codegen inventory data onto the file-level DataFrame.
+
+    Explodes semicolon-separated ``output_files`` from the codegen inventory
+    into individual rows, canonicalises paths, and left-joins onto *file_df*
+    by ``source_file``.
+
+    Adds columns: ``is_generated``, ``generator``, ``generator_input``,
+    ``gen_time_ms``.
+    """
+    if codegen_df.empty:
+        file_df = file_df.copy()
+        file_df["is_generated"] = False
+        file_df["generator"] = None
+        file_df["generator_input"] = None
+        file_df["gen_time_ms"] = None
+        return file_df
+
+    # Explode output_files into one row per generated file
+    cg = codegen_df.copy()
+    cg["output_file"] = cg["output_files"].str.split(";")
+    cg = cg.explode("output_file")
+    cg = cg[cg["output_file"].str.strip().astype(bool)].copy()
+
+    # Derive primary input from input_files (first entry)
+    cg["generator_input"] = cg["input_files"].str.split(";").str[0]
+
+    # Canonicalise paths
+    if source_dir:
+        cg["output_file"] = cg["output_file"].apply(
+            lambda p: canonicalise_path(p, source_dir)
+        )
+
+    # Build lookup: output_file -> (generator, generator_input, gen_time_ms)
+    lookup = cg[["output_file", "generator", "generator_input", "gen_time_ms"]].copy()
+    lookup = lookup.drop_duplicates(subset=["output_file"], keep="first")
+    lookup = lookup.rename(columns={"output_file": "source_file"})
+
+    # Left-join
+    result = file_df.merge(lookup, on="source_file", how="left", suffixes=("", "_cg"))
+    result["is_generated"] = result["generator"].notna()
+    return result
+
+
+def aggregate_codegen_to_target(
+    file_df: pd.DataFrame,
+    target_column: str = "cmake_target",
+) -> pd.DataFrame:
+    """Compute codegen-specific aggregates per target.
+
+    Requires columns ``is_generated``, ``generator``, ``compile_time_ms``,
+    and ``gen_time_ms`` in *file_df*.
+
+    Returns a DataFrame with one row per target and columns:
+    ``generated_file_count``, ``generated_file_fraction``,
+    ``generated_compile_time_ms``, ``generated_compile_fraction``,
+    ``generator_types``, ``generator_count``, ``gen_step_time_total_ms``.
+    """
+    if "is_generated" not in file_df.columns:
+        return pd.DataFrame(columns=[target_column])
+
+    groups = file_df.groupby(target_column)
+
+    rows = []
+    for target, group in groups:
+        total_files = len(group)
+        gen_mask = group["is_generated"].fillna(False)
+        gen_files = gen_mask.sum()
+
+        compile_col = "compile_time_ms" if "compile_time_ms" in group.columns else None
+        total_compile = int(group[compile_col].sum()) if compile_col else 0
+        gen_compile = int(group.loc[gen_mask, compile_col].sum()) if compile_col else 0
+
+        gen_group = group[gen_mask]
+        generator_types = sorted(gen_group["generator"].dropna().unique()) if not gen_group.empty else []
+
+        gen_time_total = None
+        if "gen_time_ms" in gen_group.columns and not gen_group.empty:
+            valid_times = pd.to_numeric(gen_group["gen_time_ms"], errors="coerce").dropna()
+            if not valid_times.empty:
+                gen_time_total = int(valid_times.sum())
+
+        rows.append({
+            target_column: target,
+            "generated_file_count": int(gen_files),
+            "generated_file_fraction": gen_files / total_files if total_files > 0 else 0.0,
+            "generated_compile_time_ms": gen_compile,
+            "generated_compile_fraction": gen_compile / total_compile if total_compile > 0 else 0.0,
+            "generator_types": ",".join(generator_types),
+            "generator_count": len(generator_types),
+            "gen_step_time_total_ms": gen_time_total,
+        })
+
+    return pd.DataFrame(rows)

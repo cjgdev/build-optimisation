@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from build_optimiser.config import load_config
-from build_optimiser.metrics import canonicalise_path
+from build_optimiser.metrics import canonicalise_path, merge_codegen_into_file_metrics
 
 
 def main() -> None:
@@ -108,7 +108,20 @@ def main() -> None:
     if not obj_by_target.empty and "cmake_target" in result.columns:
         result = result.merge(obj_by_target, on="cmake_target", how="left")
 
-    # Fill NaN with 0 for numeric columns
+    # Join codegen inventory data
+    codegen_path = raw_dir / "codegen_inventory.csv"
+    if codegen_path.exists():
+        codegen_df = pd.read_csv(codegen_path)
+        result = merge_codegen_into_file_metrics(result, codegen_df, source_dir)
+        gen_count = result["is_generated"].sum()
+        print(f"Codegen: {gen_count} generated files out of {len(result)} total")
+    else:
+        result["is_generated"] = False
+        result["generator"] = None
+        result["generator_input"] = None
+        result["gen_time_ms"] = None
+
+    # Fill NaN with 0 for numeric columns (skip string/bool codegen columns)
     numeric_cols = result.select_dtypes(include="number").columns
     result[numeric_cols] = result[numeric_cols].fillna(0).astype(int)
 

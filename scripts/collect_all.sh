@@ -65,14 +65,15 @@ echo ""
 
 TOTAL_START=$(date +%s)
 
-run_step "01" "01_dependency_graph.py" "Dependency Graph (CMake Graphviz)"
-run_step "02" "02_compile_times.py"    "Compile Times (-ftime-report)"
-run_step "03" "03_object_files.py"     "Object File Sizes"
-run_step "04" "04_sloc.py"             "Source Lines of Code"
-run_step "05" "05_git_history.py"      "Git Change History"
-run_step "06" "06_header_depth.py"     "Header Inclusion Depth"
-run_step "07" "07_preprocessed_size.py" "Preprocessed Output Size"
-run_step "08" "08_link_times.py"       "Link Times"
+run_step "01" "01_dependency_graph.py"  "Dependency Graph (CMake Graphviz)"
+run_step "02" "02_codegen_inventory.py" "Code Generation Inventory"
+run_step "03" "03_compile_times.py"    "Compile Times (-ftime-report)"
+run_step "04" "04_object_files.py"     "Object File Sizes"
+run_step "05" "05_sloc.py"             "Source Lines of Code"
+run_step "06" "06_git_history.py"      "Git Change History"
+run_step "07" "07_header_depth.py"     "Header Inclusion Depth"
+run_step "08" "08_preprocessed_size.py" "Preprocessed Output Size"
+run_step "09" "09_link_times.py"       "Link Times"
 
 TOTAL_END=$(date +%s)
 TOTAL_ELAPSED=$((TOTAL_END - TOTAL_START))

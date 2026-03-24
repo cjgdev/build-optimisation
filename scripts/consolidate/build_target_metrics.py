@@ -13,6 +13,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from build_optimiser.config import load_config
 from build_optimiser.graph import load_graph, all_topological_depths, critical_path, critical_path_length
+from build_optimiser.metrics import aggregate_codegen_to_target
 
 import networkx as nx
 
@@ -113,6 +114,27 @@ def main() -> None:
                     "direct_dependant_count", "transitive_dependant_count",
                     "topological_depth", "critical_path_length_ms"]:
             agg[col] = 0
+
+    # Add codegen aggregates
+    if "is_generated" in file_df.columns:
+        codegen_agg = aggregate_codegen_to_target(file_df, "cmake_target")
+        if not codegen_agg.empty:
+            agg = agg.merge(codegen_agg, on="cmake_target", how="left")
+            # Fill codegen-specific defaults
+            agg["generated_file_count"] = agg["generated_file_count"].fillna(0).astype(int)
+            agg["generated_file_fraction"] = agg["generated_file_fraction"].fillna(0.0)
+            agg["generated_compile_time_ms"] = agg["generated_compile_time_ms"].fillna(0).astype(int)
+            agg["generated_compile_fraction"] = agg["generated_compile_fraction"].fillna(0.0)
+            agg["generator_types"] = agg["generator_types"].fillna("")
+            agg["generator_count"] = agg["generator_count"].fillna(0).astype(int)
+    else:
+        agg["generated_file_count"] = 0
+        agg["generated_file_fraction"] = 0.0
+        agg["generated_compile_time_ms"] = 0
+        agg["generated_compile_fraction"] = 0.0
+        agg["generator_types"] = ""
+        agg["generator_count"] = 0
+        agg["gen_step_time_total_ms"] = None
 
     # Fill NaN
     numeric_cols = agg.select_dtypes(include="number").columns

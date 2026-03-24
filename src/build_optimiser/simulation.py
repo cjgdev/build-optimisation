@@ -143,6 +143,7 @@ def simulate_split(
     file_metrics_df: pd.DataFrame,
     cost_column: str = "compile_time_sum_ms",
     target_column: str = "cmake_target",
+    codegen_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Simulate splitting a target and return before/after metrics.
 
@@ -154,10 +155,18 @@ def simulate_split(
         file_metrics_df: File-level metrics with 'source_file' and 'cmake_target' columns.
         cost_column: Column for compile cost.
         target_column: Column for target name.
+        codegen_df: Optional codegen inventory.  When provided, files from the
+            same generator invocation (same input→output set) are validated to
+            remain in the same group.
 
     Returns:
         Dict with before/after comparison.
     """
+    # Validate generated-file constraints: files from the same generator
+    # invocation must stay in the same group.
+    if codegen_df is not None and not codegen_df.empty:
+        _validate_codegen_groups(file_groups, codegen_df)
+
     before_cost = rebuild_cost(G, target, metrics_df, cost_column, target_column)
 
     # Create new target names
@@ -268,3 +277,154 @@ def monte_carlo_rebuild_cost(
         "p95": float(np.percentile(daily_costs_arr, 95)),
         "raw": daily_costs_arr,
     }
+
+
+def _validate_codegen_groups(
+    file_groups: list[list[str]],
+    codegen_df: pd.DataFrame,
+) -> None:
+    """Raise ValueError if generated files from the same invocation are split."""
+    # Build invocation sets: each row in codegen_df is one invocation
+    for _, row in codegen_df.iterrows():
+        outputs_str = row.get("output_files", "")
+        if not outputs_str or not isinstance(outputs_str, str):
+            continue
+        outputs = {o.strip() for o in outputs_str.split(";") if o.strip()}
+        if len(outputs) <= 1:
+            continue
+
+        # Check that all outputs from this invocation are in the same group
+        found_groups: set[int] = set()
+        for gi, group in enumerate(file_groups):
+            group_set = set(group)
+            if group_set & outputs:
+                found_groups.add(gi)
+
+        if len(found_groups) > 1:
+            generator = row.get("generator", "unknown")
+            raise ValueError(
+                f"Generated files from a single {generator} invocation are "
+                f"split across groups {sorted(found_groups)}. Files from the "
+                f"same generator invocation must stay together."
+            )
+
+
+# ── Schema / codegen change analysis ─────────────────────────────────
+
+
+def schema_change_probability(
+    git_df: pd.DataFrame,
+    codegen_df: pd.DataFrame,
+    path_column: str = "source_file",
+    commit_column: str = "git_commit_count",
+) -> pd.DataFrame:
+    """Compute change frequency for schema/grammar input files.
+
+    Joins git history against the codegen inventory's ``input_files``
+    (the ``.proto``, ``.xsd``, ``.y``, ``.l`` files that feed generators).
+
+    Returns a DataFrame with columns:
+        ``input_file``, ``generator``, ``commit_count``, ``change_probability``
+    """
+    if codegen_df.empty or git_df.empty:
+        return pd.DataFrame(
+            columns=["input_file", "generator", "commit_count", "change_probability"]
+        )
+
+    # Explode codegen input files
+    cg = codegen_df.copy()
+    cg["input_file"] = cg["input_files"].str.split(";")
+    cg = cg.explode("input_file")
+    cg = cg[cg["input_file"].str.strip().astype(bool)].copy()
+    cg = cg[["input_file", "generator"]].drop_duplicates()
+
+    # Join with git history
+    merged = cg.merge(
+        git_df[[path_column, commit_column]].rename(
+            columns={path_column: "input_file", commit_column: "commit_count"}
+        ),
+        on="input_file",
+        how="left",
+    )
+    merged["commit_count"] = merged["commit_count"].fillna(0).astype(int)
+
+    total_commits = git_df[commit_column].sum()
+    if total_commits > 0:
+        merged["change_probability"] = merged["commit_count"] / total_commits
+    else:
+        merged["change_probability"] = 0.0
+
+    return merged
+
+
+def schema_pain_score(
+    schema_probs: pd.DataFrame,
+    file_metrics: pd.DataFrame,
+    codegen_df: pd.DataFrame,
+    compile_column: str = "compile_time_ms",
+) -> pd.DataFrame:
+    """Compute pain score per schema input file.
+
+    ``pain_score = change_frequency × sum_of_compile_times_of_all_generated_outputs``
+
+    Args:
+        schema_probs: Output of :func:`schema_change_probability`.
+        file_metrics: File-level metrics with ``source_file`` and *compile_column*.
+        codegen_df: Raw codegen inventory with ``input_files`` and ``output_files``.
+
+    Returns:
+        DataFrame with ``input_file``, ``generator``, ``commit_count``,
+        ``change_probability``, ``total_compile_time_ms``, ``pain_score``,
+        ``affected_target_count``.
+    """
+    if codegen_df.empty or schema_probs.empty:
+        return pd.DataFrame(columns=[
+            "input_file", "generator", "commit_count", "change_probability",
+            "total_compile_time_ms", "pain_score", "affected_target_count",
+        ])
+
+    # Build mapping: input_file -> list of output files
+    cg = codegen_df.copy()
+    cg["input_list"] = cg["input_files"].str.split(";")
+    cg["output_list"] = cg["output_files"].str.split(";")
+
+    input_to_outputs: dict[str, set[str]] = {}
+    input_to_targets: dict[str, set[str]] = {}
+    for _, row in cg.iterrows():
+        inputs = row["input_list"] if isinstance(row["input_list"], list) else []
+        outputs = row["output_list"] if isinstance(row["output_list"], list) else []
+        target = row.get("cmake_target", "")
+        for inp in inputs:
+            inp = inp.strip()
+            if inp:
+                input_to_outputs.setdefault(inp, set()).update(
+                    o.strip() for o in outputs if o.strip()
+                )
+                if target:
+                    for t in str(target).split(","):
+                        t = t.strip()
+                        if t:
+                            input_to_targets.setdefault(inp, set()).add(t)
+
+    # For each schema input, sum compile times of its generated outputs
+    file_compile = file_metrics.set_index("source_file")[compile_column] if compile_column in file_metrics.columns else pd.Series(dtype=float)
+
+    rows = []
+    for _, sp_row in schema_probs.iterrows():
+        inp = sp_row["input_file"]
+        outputs = input_to_outputs.get(inp, set())
+        total_ct = sum(file_compile.get(o, 0) for o in outputs)
+        targets = input_to_targets.get(inp, set())
+
+        rows.append({
+            "input_file": inp,
+            "generator": sp_row["generator"],
+            "commit_count": sp_row["commit_count"],
+            "change_probability": sp_row["change_probability"],
+            "total_compile_time_ms": int(total_ct),
+            "pain_score": sp_row["change_probability"] * total_ct,
+            "affected_target_count": len(targets),
+        })
+
+    result = pd.DataFrame(rows)
+    return result.sort_values("pain_score", ascending=False).reset_index(drop=True)

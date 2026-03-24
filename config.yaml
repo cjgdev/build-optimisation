@@ -25,3 +25,20 @@ git_history_months: 12
 
 # Build parallelism
 ninja_jobs: 0
+
+# Code generator classification
+# Each entry maps a generator name to a list of command-line match patterns.
+# The classifier checks if any pattern appears in the COMMAND string.
+# Built-in patterns are used for standard tools; add entries here for
+# custom tools or to override built-in patterns.
+codegen_patterns:
+  MessageCompiler:
+    - "MessageCompiler"
+  DbAutoGen:
+    - "DbAutoGen"
+  TemplateCompiler:
+    - "TemplateCompiler"
+  # Uncomment and modify to override built-in patterns:
+  # protoc:
+  #   - "protoc"
+  #   - "/path/to/custom/protoc"
