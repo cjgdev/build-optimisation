@@ -1,0 +1,27 @@
+# Paths
+source_dir: /path/to/git/worktree
+build_dir: ./data/builds/main
+raw_data_dir: ./data/raw
+processed_data_dir: ./data/processed
+
+# Compiler (absolute paths)
+cc: /path/to/gcc-12
+cxx: /path/to/g++-12
+
+# External dependency directories
+cmake_prefix_path:
+  - /path/to/boost
+  - /path/to/protobuf
+  # Add all directories needed for find_package
+
+# CMake pass-through cache variables
+cmake_cache_variables:
+  CMAKE_EXE_LINKER_FLAGS: "-fuse-ld=mold"
+  CMAKE_SHARED_LINKER_FLAGS: "-fuse-ld=mold"
+  CMAKE_EXPORT_COMPILE_COMMANDS: "ON"
+
+# Git history
+git_history_months: 12
+
+# Build parallelism
+ninja_jobs: 0
