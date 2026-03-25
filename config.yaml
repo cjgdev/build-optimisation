@@ -4,17 +4,25 @@ build_dir: ./data/builds/main
 raw_data_dir: ./data/raw
 processed_data_dir: ./data/processed
 
-# Red Hat Developer Toolset 12
-# This replaces sourcing /opt/rh/gcc-toolset-12/enable.
-# All compiler and binutils paths are derived from the root.
-gcc_toolset:
-  root: /opt/rh/gcc-toolset-12/root
-  # The enable script sets LD_LIBRARY_PATH to these directories.
-  # They are needed at build time so that the compiler and linker
-  # can find the toolset's own runtime libraries.
-  ld_library_path:
-    - /opt/rh/gcc-toolset-12/root/usr/lib64
-    - /opt/rh/gcc-toolset-12/root/usr/lib
+# Compiler and binutils — absolute paths to each binary.
+compiler:
+  cc:      /opt/rh/gcc-toolset-12/root/usr/bin/gcc
+  cxx:     /opt/rh/gcc-toolset-12/root/usr/bin/g++
+  ar:      /opt/rh/gcc-toolset-12/root/usr/bin/ar
+  ranlib:  /opt/rh/gcc-toolset-12/root/usr/bin/ranlib
+  nm:      /opt/rh/gcc-toolset-12/root/usr/bin/nm
+  objdump: /opt/rh/gcc-toolset-12/root/usr/bin/objdump
+  strip:   /opt/rh/gcc-toolset-12/root/usr/bin/strip
+  linker:  /opt/rh/gcc-toolset-12/root/usr/bin/ld
+
+# Subprocess environment adjustments applied when running CMake/Ninja.
+# path_prefix: directories prepended to PATH (in order).
+# env: extra environment variables to set.
+environment:
+  path_prefix:
+    - /opt/rh/gcc-toolset-12/root/usr/bin
+  env:
+    LD_LIBRARY_PATH: "/opt/rh/gcc-toolset-12/root/usr/lib64:/opt/rh/gcc-toolset-12/root/usr/lib"
 
 # External dependency directories
 cmake_prefix_path:

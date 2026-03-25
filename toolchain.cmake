@@ -1,28 +1,24 @@
 # toolchain.cmake — rendered from config.yaml by config.py
 #
-# Configures CMake to use Red Hat Developer Toolset 12.
-# All paths are derived from DEVTOOLSET_ROOT to ensure the
-# compiler and binutils are version-matched.
+# Hardcoded compiler and binutils paths for CMake.
+# Each path is substituted from the "compiler" section of config.yaml.
 #
-# This file replaces sourcing /opt/rh/gcc-toolset-12/enable.
 # Do not modify manually — regenerate via config.py.
 
-set(DEVTOOLSET_ROOT "@GCC_TOOLSET_ROOT@")
-
 # Compilers
-set(CMAKE_C_COMPILER   "${DEVTOOLSET_ROOT}/usr/bin/gcc")
-set(CMAKE_CXX_COMPILER "${DEVTOOLSET_ROOT}/usr/bin/g++")
+set(CMAKE_C_COMPILER   "@CC@")
+set(CMAKE_CXX_COMPILER "@CXX@")
 
 # Binutils — explicitly set so CMake does not fall back to
 # system versions. Mismatched binutils can cause subtle
 # linking and archiving issues.
-set(CMAKE_AR      "${DEVTOOLSET_ROOT}/usr/bin/ar")
-set(CMAKE_RANLIB  "${DEVTOOLSET_ROOT}/usr/bin/ranlib")
-set(CMAKE_NM      "${DEVTOOLSET_ROOT}/usr/bin/nm")
-set(CMAKE_OBJDUMP "${DEVTOOLSET_ROOT}/usr/bin/objdump")
-set(CMAKE_STRIP   "${DEVTOOLSET_ROOT}/usr/bin/strip")
-set(CMAKE_LINKER  "${DEVTOOLSET_ROOT}/usr/bin/ld")
+set(CMAKE_AR      "@AR@")
+set(CMAKE_RANLIB  "@RANLIB@")
+set(CMAKE_NM      "@NM@")
+set(CMAKE_OBJDUMP "@OBJDUMP@")
+set(CMAKE_STRIP   "@STRIP@")
+set(CMAKE_LINKER  "@LINKER@")
 
 # Prevent CMake from searching system-default environment paths
-# for compilers and tools. All tooling comes from the toolset.
+# for compilers and tools. All tooling comes from the paths above.
 set(CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH OFF)

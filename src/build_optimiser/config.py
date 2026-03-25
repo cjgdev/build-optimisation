@@ -11,6 +11,18 @@ import yaml
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# Mapping from config.yaml compiler keys to toolchain.cmake placeholders.
+_COMPILER_PLACEHOLDERS = {
+    "cc":      "@CC@",
+    "cxx":     "@CXX@",
+    "ar":      "@AR@",
+    "ranlib":  "@RANLIB@",
+    "nm":      "@NM@",
+    "objdump": "@OBJDUMP@",
+    "strip":   "@STRIP@",
+    "linker":  "@LINKER@",
+}
+
 
 def load_config(config_path: Path | None = None) -> dict[str, Any]:
     """Load config.yaml and return as dict."""
@@ -27,16 +39,17 @@ def load_config(config_path: Path | None = None) -> dict[str, Any]:
 
 
 def render_toolchain(cfg: dict[str, Any], output_path: Path | None = None) -> Path:
-    """Render toolchain.cmake from template, substituting devtoolset root.
+    """Render toolchain.cmake from template, substituting compiler paths.
 
     Returns the path to the rendered toolchain file.
     """
-    toolset_root = cfg["gcc_toolset"]["root"]
+    compiler = cfg["compiler"]
 
     template_path = _PROJECT_ROOT / "toolchain.cmake"
-    template = template_path.read_text()
+    rendered = template_path.read_text()
 
-    rendered = template.replace("@GCC_TOOLSET_ROOT@", toolset_root)
+    for key, placeholder in _COMPILER_PLACEHOLDERS.items():
+        rendered = rendered.replace(placeholder, compiler[key])
 
     if output_path is None:
         output_path = Path(cfg["build_dir"]) / "toolchain.cmake"
@@ -47,30 +60,30 @@ def render_toolchain(cfg: dict[str, Any], output_path: Path | None = None) -> Pa
 
 
 def build_environment(cfg: dict[str, Any]) -> dict[str, str]:
-    """Construct a subprocess environment with devtoolset paths.
+    """Construct a subprocess environment for CMake/Ninja invocations.
 
-    Prepends the devtoolset bin directory to PATH and sets
-    LD_LIBRARY_PATH. This mirrors what /opt/rh/gcc-toolset-12/enable
-    does, but without sourcing any external scripts.
+    Reads the ``environment`` section from the config:
+    - ``path_prefix``: directories prepended to PATH (in order).
+    - ``env``: arbitrary environment variables to set. Values are
+      appended to any existing value for the same variable (colon-
+      separated), so user and system settings are preserved.
     """
     env = os.environ.copy()
-    toolset = cfg["gcc_toolset"]
-    root = toolset["root"]
+    env_cfg = cfg.get("environment", {})
 
-    # Prepend devtoolset bin directory to PATH.
-    # This ensures that when Ninja invokes the compiler, and when
-    # the compiler internally shells out to tools like 'as' (the
-    # assembler), the devtoolset versions are found first.
-    bin_dir = os.path.join(root, "usr", "bin")
-    env["PATH"] = bin_dir + ":" + env.get("PATH", "")
+    # Prepend directories to PATH.
+    path_dirs = env_cfg.get("path_prefix", [])
+    if path_dirs:
+        prefix = ":".join(path_dirs)
+        env["PATH"] = prefix + ":" + env.get("PATH", "")
 
-    # Set LD_LIBRARY_PATH so the compiler and linker can find
-    # the devtoolset's own runtime libraries.
-    ld_paths = toolset.get("ld_library_path", [])
-    existing_ld = env.get("LD_LIBRARY_PATH", "")
-    env["LD_LIBRARY_PATH"] = ":".join(
-        ld_paths + ([existing_ld] if existing_ld else [])
-    )
+    # Set / append extra environment variables.
+    for var, value in env_cfg.get("env", {}).items():
+        existing = env.get(var, "")
+        if existing:
+            env[var] = value + ":" + existing
+        else:
+            env[var] = value
 
     return env
 
