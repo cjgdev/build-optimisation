@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 
 import pytest
 import yaml
 
-from build_optimiser.config import load_config, render_toolchain, build_cmake_command, build_ninja_command
+from build_optimiser.config import (
+    load_config,
+    render_toolchain,
+    build_cmake_command,
+    build_ninja_command,
+    build_environment,
+)
 
 
 @pytest.fixture
@@ -19,8 +26,13 @@ def sample_config(tmp_path):
         "build_dir": str(tmp_path / "build"),
         "raw_data_dir": str(tmp_path / "raw"),
         "processed_data_dir": str(tmp_path / "processed"),
-        "cc": "/usr/bin/gcc-12",
-        "cxx": "/usr/bin/g++-12",
+        "gcc_toolset": {
+            "root": "/opt/rh/gcc-toolset-12/root",
+            "ld_library_path": [
+                "/opt/rh/gcc-toolset-12/root/usr/lib64",
+                "/opt/rh/gcc-toolset-12/root/usr/lib",
+            ],
+        },
         "cmake_prefix_path": ["/opt/boost", "/opt/protobuf"],
         "cmake_cache_variables": {
             "CMAKE_EXE_LINKER_FLAGS": "-fuse-ld=mold",
@@ -36,24 +48,12 @@ def sample_config(tmp_path):
     return config_path, config
 
 
-@pytest.fixture
-def toolchain_template(tmp_path):
-    """Create a toolchain.cmake template."""
-    template = tmp_path / "toolchain.cmake"
-    template.write_text(
-        'set(CMAKE_C_COMPILER   "@CC@")\n'
-        'set(CMAKE_CXX_COMPILER "@CXX@")\n'
-        'set(CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH OFF)\n'
-    )
-    return template
-
-
 class TestLoadConfig:
     def test_loads_yaml(self, sample_config):
         config_path, expected = sample_config
         cfg = load_config(config_path)
         assert cfg["source_dir"] == expected["source_dir"]
-        assert cfg["cc"] == expected["cc"]
+        assert cfg["gcc_toolset"]["root"] == "/opt/rh/gcc-toolset-12/root"
         assert cfg["git_history_months"] == 12
 
     def test_preserves_absolute_paths(self, sample_config):
@@ -64,27 +64,55 @@ class TestLoadConfig:
 
 
 class TestRenderToolchain:
-    def test_substitutes_compiler_paths(self, sample_config, tmp_path, monkeypatch):
+    def test_substitutes_devtoolset_root(self, sample_config, tmp_path, monkeypatch):
         config_path, _ = sample_config
         cfg = load_config(config_path)
 
         # Create a toolchain template at the project root location
         import build_optimiser.config as config_mod
-        original_root = config_mod._PROJECT_ROOT
         monkeypatch.setattr(config_mod, "_PROJECT_ROOT", tmp_path)
 
         template = tmp_path / "toolchain.cmake"
         template.write_text(
-            'set(CMAKE_C_COMPILER   "@CC@")\n'
-            'set(CMAKE_CXX_COMPILER "@CXX@")\n'
+            'set(DEVTOOLSET_ROOT "@GCC_TOOLSET_ROOT@")\n'
+            'set(CMAKE_C_COMPILER "${DEVTOOLSET_ROOT}/usr/bin/gcc")\n'
+            'set(CMAKE_CXX_COMPILER "${DEVTOOLSET_ROOT}/usr/bin/g++")\n'
         )
 
         output = render_toolchain(cfg)
         content = output.read_text()
-        assert "/usr/bin/gcc-12" in content
-        assert "/usr/bin/g++-12" in content
-        assert "@CC@" not in content
-        assert "@CXX@" not in content
+        assert "/opt/rh/gcc-toolset-12/root" in content
+        assert "@GCC_TOOLSET_ROOT@" not in content
+
+
+class TestBuildEnvironment:
+    def test_prepends_bin_dir_to_path(self, sample_config):
+        config_path, _ = sample_config
+        cfg = load_config(config_path)
+        env = build_environment(cfg)
+        assert env["PATH"].startswith("/opt/rh/gcc-toolset-12/root/usr/bin:")
+
+    def test_sets_ld_library_path(self, sample_config):
+        config_path, _ = sample_config
+        cfg = load_config(config_path)
+        env = build_environment(cfg)
+        assert "/opt/rh/gcc-toolset-12/root/usr/lib64" in env["LD_LIBRARY_PATH"]
+        assert "/opt/rh/gcc-toolset-12/root/usr/lib" in env["LD_LIBRARY_PATH"]
+
+    def test_preserves_existing_path(self, sample_config, monkeypatch):
+        config_path, _ = sample_config
+        cfg = load_config(config_path)
+        monkeypatch.setenv("PATH", "/usr/bin:/usr/local/bin")
+        env = build_environment(cfg)
+        assert "/usr/bin" in env["PATH"]
+        assert "/usr/local/bin" in env["PATH"]
+
+    def test_preserves_existing_ld_library_path(self, sample_config, monkeypatch):
+        config_path, _ = sample_config
+        cfg = load_config(config_path)
+        monkeypatch.setenv("LD_LIBRARY_PATH", "/existing/lib")
+        env = build_environment(cfg)
+        assert "/existing/lib" in env["LD_LIBRARY_PATH"]
 
 
 class TestBuildCmakeCommand:
@@ -95,7 +123,7 @@ class TestBuildCmakeCommand:
         import build_optimiser.config as config_mod
         monkeypatch.setattr(config_mod, "_PROJECT_ROOT", tmp_path)
         template = tmp_path / "toolchain.cmake"
-        template.write_text('set(CMAKE_C_COMPILER "@CC@")\n')
+        template.write_text('set(DEVTOOLSET_ROOT "@GCC_TOOLSET_ROOT@")\n')
 
         cmd = build_cmake_command(cfg)
         assert cmd[0] == "cmake"
@@ -110,7 +138,7 @@ class TestBuildCmakeCommand:
         import build_optimiser.config as config_mod
         monkeypatch.setattr(config_mod, "_PROJECT_ROOT", tmp_path)
         template = tmp_path / "toolchain.cmake"
-        template.write_text('set(CMAKE_C_COMPILER "@CC@")\n')
+        template.write_text('set(DEVTOOLSET_ROOT "@GCC_TOOLSET_ROOT@")\n')
 
         cmd = build_cmake_command(cfg, pass_flags={"CMAKE_CXX_FLAGS": "-ftime-report"})
         assert "-DCMAKE_CXX_FLAGS=-ftime-report" in cmd
@@ -122,7 +150,7 @@ class TestBuildCmakeCommand:
         import build_optimiser.config as config_mod
         monkeypatch.setattr(config_mod, "_PROJECT_ROOT", tmp_path)
         template = tmp_path / "toolchain.cmake"
-        template.write_text('set(CMAKE_C_COMPILER "@CC@")\n')
+        template.write_text('set(DEVTOOLSET_ROOT "@GCC_TOOLSET_ROOT@")\n')
 
         cmd = build_cmake_command(cfg, extra_args=["--graphviz=/tmp/graph"])
         assert "--graphviz=/tmp/graph" in cmd
@@ -134,7 +162,7 @@ class TestBuildCmakeCommand:
         import build_optimiser.config as config_mod
         monkeypatch.setattr(config_mod, "_PROJECT_ROOT", tmp_path)
         template = tmp_path / "toolchain.cmake"
-        template.write_text('set(CMAKE_C_COMPILER "@CC@")\n')
+        template.write_text('set(DEVTOOLSET_ROOT "@GCC_TOOLSET_ROOT@")\n')
 
         cmd = build_cmake_command(cfg)
         prefix_arg = [a for a in cmd if a.startswith("-DCMAKE_PREFIX_PATH=")]

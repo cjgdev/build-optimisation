@@ -12,7 +12,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from build_optimiser.config import load_config, build_cmake_command
+from build_optimiser.config import load_config, build_cmake_command, build_environment
 
 
 def main() -> None:
@@ -25,9 +25,10 @@ def main() -> None:
     graph_prefix = build_dir / "graph" / "dependencies"
     graph_prefix.parent.mkdir(parents=True, exist_ok=True)
 
+    env = build_environment(cfg)
     cmd = build_cmake_command(cfg, extra_args=[f"--graphviz={graph_prefix}"])
     print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         print(f"CMake configure failed:\n{result.stderr}", file=sys.stderr)
         sys.exit(1)

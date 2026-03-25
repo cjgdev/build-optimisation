@@ -14,11 +14,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from build_optimiser.config import load_config
+from build_optimiser.config import load_config, build_environment
 from build_optimiser.metrics import parse_cmake_target_from_object_path
 
 
-def preprocess_file(command_entry: dict) -> dict | None:
+def preprocess_file(command_entry: dict, env: dict[str, str] | None = None) -> dict | None:
     """Run a single compilation command with -E and measure output size.
 
     Uses Approach B: extract compile command from compile_commands.json,
@@ -65,6 +65,7 @@ def preprocess_file(command_entry: dict) -> dict | None:
             cwd=directory,
             capture_output=True,
             timeout=120,
+            env=env,
         )
         preprocessed_bytes = len(result.stdout)
         return {
@@ -85,6 +86,8 @@ def main() -> None:
     ninja_jobs = cfg.get("ninja_jobs", 0)
     max_workers = ninja_jobs if ninja_jobs > 0 else None
 
+    env = build_environment(cfg)
+
     # Read compile_commands.json (from step 02's build, or reconfigure)
     cc_path = build_dir / "compile_commands.json"
     if not cc_path.exists():
@@ -92,7 +95,7 @@ def main() -> None:
         from build_optimiser.config import build_cmake_command
         cmd = build_cmake_command(cfg, pass_flags={"CMAKE_CXX_FLAGS": "-E"})
         print(f"Configuring: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
         if result.returncode != 0:
             print(f"CMake configure failed:\n{result.stderr}", file=sys.stderr)
             sys.exit(1)
@@ -107,7 +110,7 @@ def main() -> None:
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(preprocess_file, entry): entry
+            executor.submit(preprocess_file, entry, env): entry
             for entry in compile_commands
         }
         for i, future in enumerate(as_completed(futures)):

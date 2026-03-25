@@ -14,7 +14,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from build_optimiser.config import load_config, build_cmake_command, build_ninja_command
+from build_optimiser.config import load_config, build_cmake_command, build_ninja_command, build_environment
 from build_optimiser.metrics import parse_cmake_target_from_object_path
 
 
@@ -57,16 +57,18 @@ def main() -> None:
     # Path to the wrapper script
     wrapper = PROJECT_ROOT / "scripts" / "collect" / "wrappers" / "capture_stderr.sh"
 
+    env = build_environment(cfg)
+
     # Reconfigure with -H -fsyntax-only and the wrapper
     pass_flags = {"CMAKE_CXX_FLAGS": "-H -fsyntax-only"}
     extra_args = []
     if wrapper.exists():
         extra_args.append(f"-DCMAKE_CXX_COMPILER_LAUNCHER={wrapper}")
-        os.environ["BUILD_OPTIMISER_STDERR_DIR"] = str(stderr_dir)
+        env["BUILD_OPTIMISER_STDERR_DIR"] = str(stderr_dir)
 
     cmd = build_cmake_command(cfg, pass_flags=pass_flags, extra_args=extra_args)
     print(f"Configuring: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         print(f"CMake configure failed:\n{result.stderr}", file=sys.stderr)
         sys.exit(1)
@@ -79,9 +81,9 @@ def main() -> None:
         # Without wrapper, capture all stderr to a single file
         all_stderr = raw_dir / "header_depth_all.stderr"
         with open(all_stderr, "w") as stderr_f:
-            result = subprocess.run(ninja_cmd, stdout=subprocess.PIPE, stderr=stderr_f, text=True)
+            result = subprocess.run(ninja_cmd, stdout=subprocess.PIPE, stderr=stderr_f, text=True, env=env)
     else:
-        result = subprocess.run(ninja_cmd, capture_output=True, text=True)
+        result = subprocess.run(ninja_cmd, capture_output=True, text=True, env=env)
 
     # Build source-to-target mapping from compile_commands.json
     cc_path = build_dir / "compile_commands.json"

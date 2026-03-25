@@ -4,9 +4,17 @@ build_dir: ./data/builds/main
 raw_data_dir: ./data/raw
 processed_data_dir: ./data/processed
 
-# Compiler (absolute paths)
-cc: /path/to/gcc-12
-cxx: /path/to/g++-12
+# Red Hat Developer Toolset 12
+# This replaces sourcing /opt/rh/gcc-toolset-12/enable.
+# All compiler and binutils paths are derived from the root.
+gcc_toolset:
+  root: /opt/rh/gcc-toolset-12/root
+  # The enable script sets LD_LIBRARY_PATH to these directories.
+  # They are needed at build time so that the compiler and linker
+  # can find the toolset's own runtime libraries.
+  ld_library_path:
+    - /opt/rh/gcc-toolset-12/root/usr/lib64
+    - /opt/rh/gcc-toolset-12/root/usr/lib
 
 # External dependency directories
 cmake_prefix_path:
