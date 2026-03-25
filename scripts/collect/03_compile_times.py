@@ -13,7 +13,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from build_optimiser.config import load_config, build_cmake_command, build_ninja_command
+from build_optimiser.config import load_config, build_cmake_command, build_ninja_command, build_environment
 from build_optimiser.metrics import parse_cmake_target_from_object_path
 
 
@@ -66,10 +66,12 @@ def main() -> None:
     build_dir = Path(cfg["build_dir"])
     raw_dir = Path(cfg["raw_data_dir"])
 
+    env = build_environment(cfg)
+
     # Reconfigure with -ftime-report
     cmd = build_cmake_command(cfg, pass_flags={"CMAKE_CXX_FLAGS": "-ftime-report"})
     print(f"Configuring: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         print(f"CMake configure failed:\n{result.stderr}", file=sys.stderr)
         sys.exit(1)
@@ -77,7 +79,7 @@ def main() -> None:
     # Clean and rebuild
     clean_cmd = ["ninja", "-C", str(build_dir), "clean"]
     print(f"Cleaning: {' '.join(clean_cmd)}")
-    subprocess.run(clean_cmd, capture_output=True, text=True)
+    subprocess.run(clean_cmd, capture_output=True, text=True, env=env)
 
     # Full build, capturing stderr for ftime-report
     ninja_cmd = build_ninja_command(cfg)
@@ -85,7 +87,7 @@ def main() -> None:
     ftime_log = raw_dir / "ftime_report.log"
     raw_dir.mkdir(parents=True, exist_ok=True)
     with open(ftime_log, "w") as ftime_f:
-        result = subprocess.run(ninja_cmd, stdout=subprocess.PIPE, stderr=ftime_f, text=True)
+        result = subprocess.run(ninja_cmd, stdout=subprocess.PIPE, stderr=ftime_f, text=True, env=env)
     if result.returncode != 0:
         print(f"Build failed (exit {result.returncode})", file=sys.stderr)
         # Continue anyway to parse what we got

@@ -11,7 +11,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from build_optimiser.config import load_config, build_cmake_command, build_ninja_command
+from build_optimiser.config import load_config, build_cmake_command, build_ninja_command, build_environment
 
 
 def parse_ninja_log_links(ninja_log_path: Path) -> list[dict]:
@@ -62,10 +62,12 @@ def main() -> None:
     raw_dir = Path(cfg["raw_data_dir"])
     raw_dir.mkdir(parents=True, exist_ok=True)
 
+    env = build_environment(cfg)
+
     # Reconfigure with normal flags (clean build)
     cmd = build_cmake_command(cfg)
     print(f"Configuring: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         print(f"CMake configure failed:\n{result.stderr}", file=sys.stderr)
         sys.exit(1)
@@ -73,11 +75,11 @@ def main() -> None:
     # Clean and full rebuild
     clean_cmd = ["ninja", "-C", str(build_dir), "clean"]
     print(f"Cleaning: {' '.join(clean_cmd)}")
-    subprocess.run(clean_cmd, capture_output=True, text=True)
+    subprocess.run(clean_cmd, capture_output=True, text=True, env=env)
 
     ninja_cmd = build_ninja_command(cfg)
     print(f"Building: {' '.join(ninja_cmd)}")
-    result = subprocess.run(ninja_cmd, capture_output=True, text=True)
+    result = subprocess.run(ninja_cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         print(f"Build failed (exit {result.returncode})", file=sys.stderr)
 
