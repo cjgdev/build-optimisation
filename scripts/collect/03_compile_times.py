@@ -73,23 +73,41 @@ def main() -> None:
     print(f"Configuring: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
-        print(f"CMake configure failed:\n{result.stderr}", file=sys.stderr)
+        print(f"CMake configure failed (exit {result.returncode}):", file=sys.stderr)
+        if result.stdout:
+            print(f"CMake stdout:\n{result.stdout}", file=sys.stderr)
+        if result.stderr:
+            print(f"CMake stderr:\n{result.stderr}", file=sys.stderr)
         sys.exit(1)
 
     # Clean and rebuild
     clean_cmd = ["ninja", "-C", str(build_dir), "clean"]
     print(f"Cleaning: {' '.join(clean_cmd)}")
-    subprocess.run(clean_cmd, capture_output=True, text=True, env=env)
+    clean_result = subprocess.run(clean_cmd, capture_output=True, text=True, env=env)
+    if clean_result.returncode != 0:
+        print(f"Warning: clean failed (exit {clean_result.returncode})", file=sys.stderr)
+        if clean_result.stdout:
+            print(f"clean stdout:\n{clean_result.stdout}", file=sys.stderr)
+        if clean_result.stderr:
+            print(f"clean stderr:\n{clean_result.stderr}", file=sys.stderr)
 
     # Full build, capturing stderr for ftime-report
     ninja_cmd = build_ninja_command(cfg)
     print(f"Building: {' '.join(ninja_cmd)}")
     ftime_log = raw_dir / "ftime_report.log"
     raw_dir.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(ninja_cmd, capture_output=True, text=True, env=env)
+
+    # Write stderr to ftime_report.log (contains -ftime-report output)
     with open(ftime_log, "w") as ftime_f:
-        result = subprocess.run(ninja_cmd, stdout=subprocess.PIPE, stderr=ftime_f, text=True, env=env)
+        ftime_f.write(result.stderr)
+
     if result.returncode != 0:
         print(f"Build failed (exit {result.returncode})", file=sys.stderr)
+        if result.stdout:
+            print(f"Build stdout:\n{result.stdout}", file=sys.stderr)
+        if result.stderr:
+            print(f"Build stderr:\n{result.stderr}", file=sys.stderr)
         # Continue anyway to parse what we got
 
     # Parse ninja log
