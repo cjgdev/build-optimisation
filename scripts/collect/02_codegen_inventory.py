@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
-"""Inventory all code generation steps by parsing build.ninja."""
+"""Inventory all code generation steps using ninja compdb and log."""
 
 from __future__ import annotations
 
 import csv
 import sys
+from collections import Counter
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from build_optimiser.codegen import (
-    classify_command,
-    map_outputs_to_targets,
-    ninja_map_outputs_to_targets,
-    parse_build_ninja,
-    parse_ninja_log_for_commands,
-)
+from build_optimiser.codegen import classify_command, parse_build_ninja
 from build_optimiser.config import load_config
+from build_optimiser.ninja import (
+    map_compdb_to_targets,
+    ninja_map_outputs_to_targets,
+    parse_ninja_log,
+    run_compdb,
+    run_recompact,
+)
 
 
 def main() -> None:
@@ -28,14 +30,11 @@ def main() -> None:
 
     codegen_patterns = cfg.get("codegen_patterns")
 
-    # Step 1 — Parse build.ninja
+    # Step 1 — Parse build.ninja for CUSTOM_COMMAND edges
     print(f"Parsing {build_dir / 'build.ninja'} ...")
     edges = parse_build_ninja(str(build_dir))
-    print(f"  Found {len(edges)} build edges")
-
-    # Filter to CUSTOM_COMMAND edges only
     custom_edges = [e for e in edges if e["rule"] == "CUSTOM_COMMAND"]
-    print(f"  Of which {len(custom_edges)} are CUSTOM_COMMAND")
+    print(f"  Found {len(edges)} build edges, {len(custom_edges)} CUSTOM_COMMAND")
 
     # Step 2 — Classify each custom command
     codegen_rows: list[dict] = []
@@ -54,8 +53,8 @@ def main() -> None:
             "command": command,
             "input_files": ";".join(inputs),
             "output_files": ";".join(outputs),
-            "cmake_target": "",  # filled in step 3
-            "gen_time_ms": "",   # filled in step 4
+            "cmake_target": "",
+            "gen_time_ms": "",
             "description": description,
         }
 
@@ -66,26 +65,25 @@ def main() -> None:
 
     print(f"  Classified: {len(codegen_rows)} codegen, {len(non_codegen_rows)} non-codegen")
 
-    # Step 3 — Map generated outputs to owning CMake targets
-    output_to_target = map_outputs_to_targets(edges)
+    # Step 3 — Map generated outputs to CMake targets via compdb
+    compdb_entries = run_compdb(str(build_dir))
+    source_to_target = map_compdb_to_targets(compdb_entries)
 
-    # Collect outputs that still need target mapping for ninja CLI fallback
     unmapped_outputs: list[str] = []
-
     for row in codegen_rows:
         out_files = row["output_files"].split(";") if row["output_files"] else []
         targets = set()
         for out in out_files:
-            t = output_to_target.get(out)
+            t = source_to_target.get(out)
             if t:
                 targets.add(t)
         row["cmake_target"] = ",".join(sorted(targets)) if targets else ""
         if not row["cmake_target"]:
             unmapped_outputs.extend(out_files)
 
-    # Fallback: use ninja CLI to resolve unmapped outputs
+    # Fallback: use ninja -t query for unmapped outputs
     if unmapped_outputs:
-        print(f"  Using ninja CLI to resolve {len(unmapped_outputs)} unmapped outputs...")
+        print(f"  Using ninja -t query to resolve {len(unmapped_outputs)} unmapped outputs...")
         ninja_mapping = ninja_map_outputs_to_targets(str(build_dir), unmapped_outputs)
         if ninja_mapping:
             for row in codegen_rows:
@@ -100,24 +98,18 @@ def main() -> None:
                 if targets:
                     row["cmake_target"] = ",".join(sorted(targets))
 
-    # Step 4 — Capture generator execution times from .ninja_log (if available)
-    ninja_log_path = build_dir / ".ninja_log"
-    all_generated_outputs: set[str] = set()
-    for row in codegen_rows:
-        if row["output_files"]:
-            all_generated_outputs.update(row["output_files"].split(";"))
-
-    timings = parse_ninja_log_for_commands(str(ninja_log_path), all_generated_outputs)
+    # Step 4 — Extract timing from .ninja_log (after recompact)
+    run_recompact(str(build_dir))
+    log_entries = parse_ninja_log(str(build_dir / ".ninja_log"))
 
     for row in codegen_rows:
         out_files = row["output_files"].split(";") if row["output_files"] else []
-        # Use the timing of the first output that has a log entry
-        gen_time = None
         for out in out_files:
-            if out in timings:
-                gen_time = timings[out]
+            key = out.lstrip("./") if out.startswith("./") else out
+            entry = log_entries.get(key)
+            if entry:
+                row["gen_time_ms"] = entry["wall_clock_ms"]
                 break
-        row["gen_time_ms"] = gen_time if gen_time is not None else ""
 
     # Write primary output
     fieldnames = [
@@ -142,7 +134,6 @@ def main() -> None:
 
     # Summary
     if codegen_rows:
-        from collections import Counter
         gen_counts = Counter(r["generator"] for r in codegen_rows)
         print("\nGenerator summary:")
         for gen, count in gen_counts.most_common():

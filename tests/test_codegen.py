@@ -15,7 +15,6 @@ from build_optimiser.codegen import (
     classify_command,
     map_outputs_to_targets,
     parse_build_ninja,
-    parse_ninja_log_for_commands,
 )
 
 
@@ -316,68 +315,6 @@ class TestMapOutputsToTargets:
         ]
         mapping = map_outputs_to_targets(edges)
         assert mapping == {}
-
-
-# ── parse_ninja_log_for_commands ──────────────────────────────────────
-
-
-class TestParseNinjaLog:
-    """Tests for ninja log timing extraction."""
-
-    def test_basic_timing(self, tmp_path):
-        log = tmp_path / ".ninja_log"
-        log.write_text(
-            "# ninja log v5\n"
-            "100\t500\t0\tabc123\tgen/msg.pb.cc\n"
-            "200\t800\t0\tdef456\tgen/other.pb.cc\n"
-        )
-        known = {"gen/msg.pb.cc"}
-        result = parse_ninja_log_for_commands(str(log), known)
-        assert result == {"gen/msg.pb.cc": 400}
-
-    def test_empty_known_set(self, tmp_path):
-        log = tmp_path / ".ninja_log"
-        log.write_text(
-            "# ninja log v5\n"
-            "100\t500\t0\tabc123\tgen/msg.pb.cc\n"
-        )
-        result = parse_ninja_log_for_commands(str(log), set())
-        assert result == {}
-
-    def test_missing_log(self, tmp_path):
-        result = parse_ninja_log_for_commands(str(tmp_path / "missing"), {"foo"})
-        assert result == {}
-
-    def test_comment_lines_skipped(self, tmp_path):
-        log = tmp_path / ".ninja_log"
-        log.write_text(
-            "# ninja log v5\n"
-            "# some comment\n"
-            "100\t300\t0\thash1\tgen/out.cpp\n"
-        )
-        result = parse_ninja_log_for_commands(str(log), {"gen/out.cpp"})
-        assert result == {"gen/out.cpp": 200}
-
-    def test_normalised_paths(self, tmp_path):
-        """Paths with ./ prefix should match normalised ninja_log entries."""
-        log = tmp_path / ".ninja_log"
-        log.write_text(
-            "# ninja log v5\n"
-            "100\t500\t0\tabc123\tgen/msg.pb.cc\n"
-        )
-        # Parser might produce ./gen/msg.pb.cc, log has gen/msg.pb.cc
-        result = parse_ninja_log_for_commands(str(log), {"./gen/msg.pb.cc"})
-        assert result == {"./gen/msg.pb.cc": 400}
-
-    def test_log_path_with_leading_dotslash(self, tmp_path):
-        """Log has ./prefix, known_outputs doesn't."""
-        log = tmp_path / ".ninja_log"
-        log.write_text(
-            "# ninja log v5\n"
-            "100\t500\t0\tabc123\t./gen/msg.pb.cc\n"
-        )
-        result = parse_ninja_log_for_commands(str(log), {"gen/msg.pb.cc"})
-        assert result == {"gen/msg.pb.cc": 400}
 
 
 # ── Helper function tests ────────────────────────────────────────────

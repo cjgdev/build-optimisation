@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure wall-clock compile time for every source file via Ninja log and -ftime-report."""
+"""Measure wall-clock compile time for every source file via ninja compdb and log."""
 
 from __future__ import annotations
 
@@ -13,52 +13,18 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from build_optimiser.config import load_config, build_cmake_command, build_ninja_command, build_environment
-from build_optimiser.metrics import parse_cmake_target_from_object_path
-
-
-def parse_ninja_log(ninja_log_path: Path) -> list[dict]:
-    """Parse .ninja_log and extract timing information."""
-    entries = []
-    with open(ninja_log_path) as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith("#"):
-                continue
-            parts = line.split("\t")
-            if len(parts) >= 5:
-                start_ms = int(parts[0])
-                end_ms = int(parts[1])
-                # parts[2] is mtime_ms (restat)
-                # parts[3] is command_hash
-                target_path = parts[4] if len(parts) > 4 else parts[3]
-                entries.append({
-                    "target_path": target_path,
-                    "start_ms": start_ms,
-                    "end_ms": end_ms,
-                    "wall_clock_ms": end_ms - start_ms,
-                })
-    return entries
-
-
-def map_object_to_source(build_dir: Path) -> dict[str, str]:
-    """Map .o file paths to source file paths using compile_commands.json."""
-    cc_path = build_dir / "compile_commands.json"
-    if not cc_path.exists():
-        return {}
-
-    with open(cc_path) as f:
-        entries = json.load(f)
-
-    mapping = {}
-    for entry in entries:
-        source = entry.get("file", "")
-        command = entry.get("command", "")
-        output_match = re.search(r"-o\s+(\S+)", command)
-        if output_match:
-            output = output_match.group(1)
-            mapping[output] = source
-    return mapping
+from build_optimiser.config import (
+    build_cmake_command,
+    build_environment,
+    build_ninja_command,
+    load_config,
+)
+from build_optimiser.ninja import (
+    join_compdb_with_log,
+    parse_ninja_log,
+    run_compdb,
+    run_recompact,
+)
 
 
 def main() -> None:
@@ -87,43 +53,33 @@ def main() -> None:
     ftime_log = raw_dir / "ftime_report.log"
     raw_dir.mkdir(parents=True, exist_ok=True)
     with open(ftime_log, "w") as ftime_f:
-        result = subprocess.run(ninja_cmd, stdout=subprocess.PIPE, stderr=ftime_f, text=True, env=env)
+        result = subprocess.run(
+            ninja_cmd, stdout=subprocess.PIPE, stderr=ftime_f, text=True, env=env,
+        )
     if result.returncode != 0:
         print(f"Build failed (exit {result.returncode})", file=sys.stderr)
-        # Continue anyway to parse what we got
 
-    # Parse ninja log
-    ninja_log_path = build_dir / ".ninja_log"
-    if not ninja_log_path.exists():
-        print("Error: .ninja_log not found", file=sys.stderr)
-        sys.exit(1)
+    # Recompact ninja_log, get compdb, parse log, and join
+    run_recompact(str(build_dir))
+    compdb_entries = run_compdb(str(build_dir))
+    log_entries = parse_ninja_log(str(build_dir / ".ninja_log"))
+    joined = join_compdb_with_log(compdb_entries, log_entries)
 
-    entries = parse_ninja_log(ninja_log_path)
-    obj_to_source = map_object_to_source(build_dir)
-
-    # Write parsed ninja log
+    # Write parsed results
     output_path = raw_dir / "ninja_log.tsv"
     with open(output_path, "w", newline="") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["target_path", "source_file", "cmake_target", "start_ms", "end_ms", "wall_clock_ms"],
+            fieldnames=[
+                "target_path", "source_file", "cmake_target",
+                "start_ms", "end_ms", "wall_clock_ms",
+            ],
             delimiter="\t",
         )
         writer.writeheader()
-        for entry in entries:
-            target_path = entry["target_path"]
-            source_file = obj_to_source.get(target_path, "")
-            cmake_target = parse_cmake_target_from_object_path(target_path) or ""
-            writer.writerow({
-                "target_path": target_path,
-                "source_file": source_file,
-                "cmake_target": cmake_target,
-                "start_ms": entry["start_ms"],
-                "end_ms": entry["end_ms"],
-                "wall_clock_ms": entry["wall_clock_ms"],
-            })
+        writer.writerows(joined)
 
-    print(f"Wrote {len(entries)} entries to {output_path}")
+    print(f"Wrote {len(joined)} entries to {output_path}")
 
     # Parse ftime-report into JSON (best effort)
     try:
@@ -140,13 +96,10 @@ def _parse_ftime_report(log_path: Path) -> list[dict]:
     """Best-effort parse of GCC -ftime-report output."""
     results = []
     current_file = None
-    current_entries = []
+    current_entries: list[dict] = []
 
     with open(log_path) as f:
         for line in f:
-            # GCC ftime-report lines look like:
-            # Time variable                                   usr           sys          wall
-            #  phase opt and target          :   0.01 (  5%)   0.00 (  0%)   0.01 (  5%)
             file_match = re.search(r"Compiling\s+(\S+)", line)
             if file_match:
                 if current_file and current_entries:
