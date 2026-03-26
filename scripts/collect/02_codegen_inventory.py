@@ -13,6 +13,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from build_optimiser.codegen import (
     classify_command,
     map_outputs_to_targets,
+    ninja_map_outputs_to_targets,
     parse_build_ninja,
     parse_ninja_log_for_commands,
 )
@@ -67,6 +68,10 @@ def main() -> None:
 
     # Step 3 — Map generated outputs to owning CMake targets
     output_to_target = map_outputs_to_targets(edges)
+
+    # Collect outputs that still need target mapping for ninja CLI fallback
+    unmapped_outputs: list[str] = []
+
     for row in codegen_rows:
         out_files = row["output_files"].split(";") if row["output_files"] else []
         targets = set()
@@ -75,6 +80,25 @@ def main() -> None:
             if t:
                 targets.add(t)
         row["cmake_target"] = ",".join(sorted(targets)) if targets else ""
+        if not row["cmake_target"]:
+            unmapped_outputs.extend(out_files)
+
+    # Fallback: use ninja CLI to resolve unmapped outputs
+    if unmapped_outputs:
+        print(f"  Using ninja CLI to resolve {len(unmapped_outputs)} unmapped outputs...")
+        ninja_mapping = ninja_map_outputs_to_targets(str(build_dir), unmapped_outputs)
+        if ninja_mapping:
+            for row in codegen_rows:
+                if row["cmake_target"]:
+                    continue
+                out_files = row["output_files"].split(";") if row["output_files"] else []
+                targets = set()
+                for out in out_files:
+                    t = ninja_mapping.get(out)
+                    if t:
+                        targets.add(t)
+                if targets:
+                    row["cmake_target"] = ",".join(sorted(targets))
 
     # Step 4 — Capture generator execution times from .ninja_log (if available)
     ninja_log_path = build_dir / ".ninja_log"
