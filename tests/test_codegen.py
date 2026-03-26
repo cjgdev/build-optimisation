@@ -8,6 +8,10 @@ from pathlib import Path
 import pytest
 
 from build_optimiser.codegen import (
+    _find_unescaped_colon,
+    _resolve_continuations,
+    _split_ninja_paths,
+    _unescape_ninja_path,
     classify_command,
     map_outputs_to_targets,
     parse_build_ninja,
@@ -171,6 +175,89 @@ class TestParseBuildNinja:
         with pytest.raises(FileNotFoundError):
             parse_build_ninja(str(tmp_path / "nonexistent"))
 
+    def test_line_continuation(self, tmp_path):
+        """Build lines spanning multiple physical lines via $\\n."""
+        ninja = tmp_path / "build.ninja"
+        ninja.write_text(
+            "build gen/msg.pb.cc $\n"
+            "  gen/msg.pb.h : CUSTOM_COMMAND $\n"
+            "  msg.proto | /usr/bin/protoc\n"
+            "  COMMAND = /usr/bin/protoc --cpp_out=gen msg.proto\n"
+        )
+        edges = parse_build_ninja(str(tmp_path))
+        assert len(edges) == 1
+        e = edges[0]
+        assert e["rule"] == "CUSTOM_COMMAND"
+        assert e["outputs"] == ["gen/msg.pb.cc", "gen/msg.pb.h"]
+        assert e["inputs"] == ["msg.proto"]
+        assert e["implicit"] == ["/usr/bin/protoc"]
+
+    def test_escaped_space_in_path(self, tmp_path):
+        """Paths with escaped spaces should be treated as single tokens."""
+        ninja = tmp_path / "build.ninja"
+        ninja.write_text(
+            "build my$ output.o : CXX_COMPILER__lib my$ input.cpp\n"
+        )
+        edges = parse_build_ninja(str(tmp_path))
+        assert len(edges) == 1
+        assert edges[0]["outputs"] == ["my output.o"]
+        assert edges[0]["inputs"] == ["my input.cpp"]
+
+    def test_escaped_colon_in_path(self, tmp_path):
+        """$: in paths should not be mistaken for the build separator."""
+        ninja = tmp_path / "build.ninja"
+        ninja.write_text(
+            "build C$:/Users/out.o : CXX_COMPILER__lib C$:/Users/in.cpp\n"
+        )
+        edges = parse_build_ninja(str(tmp_path))
+        assert len(edges) == 1
+        assert edges[0]["outputs"] == ["C:/Users/out.o"]
+        assert edges[0]["inputs"] == ["C:/Users/in.cpp"]
+        assert edges[0]["rule"] == "CXX_COMPILER__lib"
+
+    def test_implicit_outputs(self, tmp_path):
+        """Outputs before : with | separator for implicit outputs."""
+        ninja = tmp_path / "build.ninja"
+        ninja.write_text(
+            "build out.dll | out.lib : link main.o\n"
+        )
+        edges = parse_build_ninja(str(tmp_path))
+        assert len(edges) == 1
+        assert edges[0]["outputs"] == ["out.dll"]
+        assert edges[0]["implicit_outputs"] == ["out.lib"]
+        assert edges[0]["inputs"] == ["main.o"]
+
+    def test_cmake_workdir_implicit_outputs(self, tmp_path):
+        """CMake-style build lines with ${cmake_ninja_workdir} implicit outputs."""
+        ninja = tmp_path / "build.ninja"
+        ninja.write_text(
+            "build autogen/timestamp autogen/mocs.cpp"
+            " | ${cmake_ninja_workdir}autogen/timestamp"
+            " ${cmake_ninja_workdir}autogen/mocs.cpp"
+            " : CUSTOM_COMMAND || autogen_deps\n"
+            "  COMMAND = cmake -E cmake_autogen info.json\n"
+        )
+        edges = parse_build_ninja(str(tmp_path))
+        assert len(edges) == 1
+        e = edges[0]
+        assert e["outputs"] == ["autogen/timestamp", "autogen/mocs.cpp"]
+        assert len(e["implicit_outputs"]) == 2
+        assert e["rule"] == "CUSTOM_COMMAND"
+        assert e["order_only"] == ["autogen_deps"]
+
+    def test_multiline_command_variable(self, tmp_path):
+        """COMMAND variable value spanning multiple lines via $\\n continuation."""
+        ninja = tmp_path / "build.ninja"
+        ninja.write_text(
+            "build out.cpp : CUSTOM_COMMAND in.y\n"
+            "  COMMAND = cd /build && $\n"
+            "    /usr/bin/bison -o out.cpp in.y\n"
+        )
+        edges = parse_build_ninja(str(tmp_path))
+        assert len(edges) == 1
+        assert "bison" in edges[0]["variables"]["COMMAND"]
+        assert "cd /build" in edges[0]["variables"]["COMMAND"]
+
 
 # ── map_outputs_to_targets ────────────────────────────────────────────
 
@@ -270,3 +357,81 @@ class TestParseNinjaLog:
         )
         result = parse_ninja_log_for_commands(str(log), {"gen/out.cpp"})
         assert result == {"gen/out.cpp": 200}
+
+    def test_normalised_paths(self, tmp_path):
+        """Paths with ./ prefix should match normalised ninja_log entries."""
+        log = tmp_path / ".ninja_log"
+        log.write_text(
+            "# ninja log v5\n"
+            "100\t500\t0\tabc123\tgen/msg.pb.cc\n"
+        )
+        # Parser might produce ./gen/msg.pb.cc, log has gen/msg.pb.cc
+        result = parse_ninja_log_for_commands(str(log), {"./gen/msg.pb.cc"})
+        assert result == {"./gen/msg.pb.cc": 400}
+
+    def test_log_path_with_leading_dotslash(self, tmp_path):
+        """Log has ./prefix, known_outputs doesn't."""
+        log = tmp_path / ".ninja_log"
+        log.write_text(
+            "# ninja log v5\n"
+            "100\t500\t0\tabc123\t./gen/msg.pb.cc\n"
+        )
+        result = parse_ninja_log_for_commands(str(log), {"gen/msg.pb.cc"})
+        assert result == {"gen/msg.pb.cc": 400}
+
+
+# ── Helper function tests ────────────────────────────────────────────
+
+
+class TestResolveContinuations:
+    def test_no_continuation(self):
+        assert _resolve_continuations(["abc\n", "def\n"]) == ["abc", "def"]
+
+    def test_single_continuation(self):
+        result = _resolve_continuations(["abc $\n", "  def\n"])
+        assert result == ["abc def"]
+
+    def test_double_dollar_not_continuation(self):
+        result = _resolve_continuations(["abc$$\n", "def\n"])
+        assert result == ["abc$$", "def"]
+
+    def test_multi_continuation(self):
+        result = _resolve_continuations(["a $\n", "  b $\n", "  c\n"])
+        # "a " + "b " + "c" — each continuation strips leading whitespace
+        assert result == ["a b c"]
+
+
+class TestSplitNinjaPaths:
+    def test_simple(self):
+        assert _split_ninja_paths("a b c") == ["a", "b", "c"]
+
+    def test_escaped_space(self):
+        assert _split_ninja_paths("my$ file.o other.o") == ["my$ file.o", "other.o"]
+
+    def test_escaped_colon(self):
+        assert _split_ninja_paths("C$:/Users/file.o") == ["C$:/Users/file.o"]
+
+
+class TestUnescapeNinjaPath:
+    def test_escaped_space(self):
+        assert _unescape_ninja_path("my$ file.o") == "my file.o"
+
+    def test_escaped_colon(self):
+        assert _unescape_ninja_path("C$:/Users") == "C:/Users"
+
+    def test_escaped_dollar(self):
+        assert _unescape_ninja_path("price$$10") == "price$10"
+
+    def test_no_escapes(self):
+        assert _unescape_ninja_path("normal/path.o") == "normal/path.o"
+
+
+class TestFindUnescapedColon:
+    def test_simple(self):
+        assert _find_unescaped_colon("output : rule") == 7
+
+    def test_escaped_colon_skipped(self):
+        assert _find_unescaped_colon("C$:/out : rule") == 8
+
+    def test_no_colon(self):
+        assert _find_unescaped_colon("no colon here") == -1

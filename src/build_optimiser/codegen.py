@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 # Extensions that indicate generated *source* code (compiled into .o)
@@ -61,6 +62,125 @@ def _compile_user_patterns(
     return result
 
 
+# ── Ninja escape / path helpers ───────────────────────────────────────
+
+
+def _resolve_continuations(raw_lines: list[str]) -> list[str]:
+    """Join Ninja ``$\\n`` line continuations into logical lines.
+
+    A line ending with ``$`` (but not ``$$``) continues on the next line.
+    Leading whitespace on the continuation line is stripped.
+    """
+    logical: list[str] = []
+    buf: list[str] = []
+
+    for raw in raw_lines:
+        line = raw.rstrip("\n").rstrip("\r")
+        if line.endswith("$") and not line.endswith("$$"):
+            # Continuation — strip trailing '$' and accumulate
+            if buf:
+                # Intermediate continuation: strip leading whitespace
+                buf.append(line.lstrip()[:-1])
+            else:
+                # First line of continuation
+                buf.append(line[:-1])
+        else:
+            if buf:
+                buf.append(line.lstrip())
+                logical.append("".join(buf))
+                buf = []
+            else:
+                logical.append(line)
+
+    # Flush any remaining buffer
+    if buf:
+        logical.append("".join(buf))
+
+    return logical
+
+
+def _unescape_ninja_path(token: str) -> str:
+    """Resolve Ninja path escapes: ``$$`` → ``$``, ``$ `` → `` ``, ``$:`` → ``:``."""
+    result: list[str] = []
+    i = 0
+    while i < len(token):
+        if token[i] == "$" and i + 1 < len(token):
+            nxt = token[i + 1]
+            if nxt == "$":
+                result.append("$")
+                i += 2
+            elif nxt == " ":
+                result.append(" ")
+                i += 2
+            elif nxt == ":":
+                result.append(":")
+                i += 2
+            else:
+                # ${var} or $var — leave as-is for now
+                result.append(token[i])
+                i += 1
+        else:
+            result.append(token[i])
+            i += 1
+    return "".join(result)
+
+
+def _split_ninja_paths(s: str) -> list[str]:
+    """Split a Ninja path list respecting ``$ `` (escaped space) and ``$:`` (escaped colon).
+
+    Returns a list of raw (still-escaped) tokens split only on *unescaped* whitespace.
+    """
+    tokens: list[str] = []
+    current: list[str] = []
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if ch == "$" and i + 1 < len(s):
+            nxt = s[i + 1]
+            if nxt == " " or nxt == ":" or nxt == "$":
+                # Escaped char — part of the current token
+                current.append(ch)
+                current.append(nxt)
+                i += 2
+                continue
+            elif nxt == "\n":
+                # Should already be resolved, but handle gracefully
+                i += 2
+                continue
+            else:
+                current.append(ch)
+                i += 1
+                continue
+        if ch in (" ", "\t"):
+            if current:
+                tokens.append("".join(current))
+                current = []
+            i += 1
+        else:
+            current.append(ch)
+            i += 1
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
+
+def _find_unescaped_colon(s: str) -> int:
+    """Find the position of the first unescaped ``:`` in *s*.
+
+    ``$:`` is an escaped colon and should be skipped.  Returns -1 if not found.
+    """
+    i = 0
+    while i < len(s):
+        if s[i] == "$" and i + 1 < len(s):
+            # Skip escaped character
+            i += 2
+            continue
+        if s[i] == ":":
+            return i
+        i += 1
+    return -1
+
+
 # ── build.ninja parser ────────────────────────────────────────────────
 
 def parse_build_ninja(build_dir: str) -> list[dict]:
@@ -82,27 +202,29 @@ def parse_build_ninja(build_dir: str) -> list[dict]:
     current_edge: dict | None = None
 
     with open(ninja_path, encoding="utf-8", errors="replace") as fh:
-        for raw_line in fh:
-            line = raw_line.rstrip("\n")
+        raw_lines = fh.readlines()
 
-            # Indented lines are variable assignments for the current edge
-            if line.startswith("  ") and current_edge is not None:
-                stripped = line.strip()
-                eq_pos = stripped.find("=")
-                if eq_pos > 0:
-                    var_name = stripped[:eq_pos].strip()
-                    var_value = stripped[eq_pos + 1:].strip()
-                    current_edge["variables"][var_name] = var_value
-                continue
+    logical_lines = _resolve_continuations(raw_lines)
 
-            # Non-indented line — flush previous edge
-            if current_edge is not None:
-                edges.append(current_edge)
-                current_edge = None
+    for line in logical_lines:
+        # Indented lines are variable assignments for the current edge
+        if line.startswith("  ") and current_edge is not None:
+            stripped = line.strip()
+            eq_pos = stripped.find("=")
+            if eq_pos > 0:
+                var_name = stripped[:eq_pos].strip()
+                var_value = stripped[eq_pos + 1:].strip()
+                current_edge["variables"][var_name] = var_value
+            continue
 
-            # Parse build statement
-            if line.startswith("build "):
-                current_edge = _parse_build_line(line)
+        # Non-indented line — flush previous edge
+        if current_edge is not None:
+            edges.append(current_edge)
+            current_edge = None
+
+        # Parse build statement
+        if line.startswith("build "):
+            current_edge = _parse_build_line(line)
 
     # Flush last edge
     if current_edge is not None:
@@ -112,16 +234,21 @@ def parse_build_ninja(build_dir: str) -> list[dict]:
 
 
 def _parse_build_line(line: str) -> dict:
-    """Parse a single ``build …`` line into its components."""
-    # Format: build output1 output2 : rule_name input1 | implicit1 || order_only1
+    """Parse a single ``build …`` line into its components.
+
+    Handles Ninja escapes (``$ ``, ``$:``, ``$$``), implicit outputs
+    (``|`` before the colon), implicit deps (``|`` after the colon),
+    and order-only deps (``||``).
+    """
     rest = line[len("build "):]
 
-    # Split on colon separating outputs from rule+inputs
-    colon_pos = rest.find(":")
+    # Find the colon that separates outputs from rule+inputs, skipping $:
+    colon_pos = _find_unescaped_colon(rest)
     if colon_pos < 0:
+        paths = _split_ninja_paths(rest)
         return {
             "rule": "",
-            "outputs": rest.split(),
+            "outputs": [_unescape_ninja_path(p) for p in paths],
             "inputs": [],
             "implicit": [],
             "order_only": [],
@@ -131,28 +258,43 @@ def _parse_build_line(line: str) -> dict:
     outputs_str = rest[:colon_pos].strip()
     rule_inputs_str = rest[colon_pos + 1:].strip()
 
+    # Parse outputs — split on unescaped '|' for implicit outputs
+    output_tokens = _split_ninja_paths(outputs_str)
+    explicit_outputs: list[str] = []
+    implicit_outputs: list[str] = []
+    current_out = explicit_outputs
+    for tok in output_tokens:
+        if tok == "|":
+            current_out = implicit_outputs
+        else:
+            current_out.append(_unescape_ninja_path(tok))
+
     # First token after colon is the rule name
-    tokens = rule_inputs_str.split()
-    rule = tokens[0] if tokens else ""
+    tokens = _split_ninja_paths(rule_inputs_str)
+    rule = _unescape_ninja_path(tokens[0]) if tokens else ""
     remaining = tokens[1:] if len(tokens) > 1 else []
 
     # Split remaining into explicit, implicit (|), order-only (||)
     explicit: list[str] = []
     implicit: list[str] = []
     order_only: list[str] = []
-    current = explicit
+    current: list[str] = explicit
 
-    for tok in remaining:
+    i = 0
+    while i < len(remaining):
+        tok = remaining[i]
         if tok == "||":
             current = order_only
         elif tok == "|":
             current = implicit
         else:
-            current.append(tok)
+            current.append(_unescape_ninja_path(tok))
+        i += 1
 
     return {
         "rule": rule,
-        "outputs": outputs_str.split(),
+        "outputs": explicit_outputs,
+        "implicit_outputs": implicit_outputs,
         "inputs": explicit,
         "implicit": implicit,
         "order_only": order_only,
@@ -213,7 +355,10 @@ def map_outputs_to_targets(build_ninja_edges: list[dict]) -> dict[str, str]:
     for edge in build_ninja_edges:
         if edge["rule"] != "CUSTOM_COMMAND":
             continue
-        for out in edge["outputs"]:
+        # Check both explicit and implicit outputs
+        all_outputs = list(edge["outputs"])
+        all_outputs.extend(edge.get("implicit_outputs", []))
+        for out in all_outputs:
             suffix = Path(out).suffix.lower()
             if suffix not in _SOURCE_EXTENSIONS:
                 continue
@@ -258,6 +403,14 @@ def parse_ninja_log_for_commands(
 
     timings: dict[str, int] = {}
 
+    # Normalise known_outputs for comparison (strip leading ./)
+    normalised_known: dict[str, str] = {}
+    for o in known_outputs:
+        normalised_known[o] = o
+        stripped = o.lstrip("./")
+        if stripped != o:
+            normalised_known[stripped] = o
+
     with open(log, encoding="utf-8", errors="replace") as fh:
         for line in fh:
             line = line.strip()
@@ -266,10 +419,102 @@ def parse_ninja_log_for_commands(
             parts = line.split("\t")
             if len(parts) < 5:
                 continue
-            start_ms = int(parts[0])
-            end_ms = int(parts[1])
+            try:
+                start_ms = int(parts[0])
+                end_ms = int(parts[1])
+            except ValueError:
+                continue
             output_path = parts[4]
-            if output_path in known_outputs:
-                timings[output_path] = end_ms - start_ms
+            # Try exact match first, then normalised
+            orig = normalised_known.get(output_path)
+            if orig is None:
+                orig = normalised_known.get(output_path.lstrip("./"))
+            if orig is not None:
+                timings[orig] = end_ms - start_ms
 
     return timings
+
+
+# ── Ninja CLI helpers (robust fallbacks) ──────────────────────────────
+
+
+def ninja_query_target(build_dir: str, output_path: str) -> dict | None:
+    """Use ``ninja -t query`` to get inputs/outputs for a specific target.
+
+    Returns a dict with ``rule``, ``inputs``, ``outputs`` or *None* on failure.
+    """
+    try:
+        result = subprocess.run(
+            ["ninja", "-t", "query", output_path],
+            capture_output=True,
+            text=True,
+            cwd=build_dir,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return None
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+    info: dict = {"rule": "", "inputs": [], "outputs": []}
+    section = None
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("input:"):
+            info["rule"] = stripped.split(":", 1)[1].strip()
+            section = "inputs"
+        elif stripped == "outputs:":
+            section = "outputs"
+        elif section and stripped:
+            info[section].append(stripped)
+
+    return info
+
+
+def ninja_list_targets(build_dir: str) -> dict[str, str]:
+    """Use ``ninja -t targets all`` to list all targets and their rule names.
+
+    Returns a mapping of output path → rule name.
+    """
+    try:
+        result = subprocess.run(
+            ["ninja", "-t", "targets", "all"],
+            capture_output=True,
+            text=True,
+            cwd=build_dir,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            return {}
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return {}
+
+    targets: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        # Format: "target_path: rule_name"
+        colon_pos = line.rfind(": ")
+        if colon_pos > 0:
+            targets[line[:colon_pos]] = line[colon_pos + 2:]
+    return targets
+
+
+def ninja_map_outputs_to_targets(build_dir: str, output_paths: list[str]) -> dict[str, str]:
+    """Use ``ninja -t query`` to map generated outputs to CMake targets.
+
+    For each generated source file, queries ninja to find what consumes it,
+    then extracts the CMake target name from ``CMakeFiles/<target>.dir/``.
+    """
+    mapping: dict[str, str] = {}
+    for out_path in output_paths:
+        suffix = Path(out_path).suffix.lower()
+        if suffix not in _SOURCE_EXTENSIONS:
+            continue
+        info = ninja_query_target(build_dir, out_path)
+        if not info:
+            continue
+        for consumer_out in info.get("outputs", []):
+            match = re.search(r"CMakeFiles/([^/]+)\.dir/", consumer_out)
+            if match:
+                mapping[out_path] = match.group(1)
+                break
+    return mapping
