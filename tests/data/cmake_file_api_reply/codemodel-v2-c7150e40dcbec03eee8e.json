@@ -1,0 +1,471 @@
+{
+	"configurations" : 
+	[
+		{
+			"abstractTargets" : 
+			[
+				{
+					"directoryIndex" : 6,
+					"id" : "Python3::Interpreter::@e649d252a4bd824a981b",
+					"jsonFile" : "target-Python3__Interpreter-41b1add01b562b4c799d.json",
+					"name" : "Python3::Interpreter",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 6,
+					"id" : "Python3::InterpreterMultiConfig::@e649d252a4bd824a981b",
+					"jsonFile" : "target-Python3__InterpreterMultiConfig-988d627b50edfe7019b3.json",
+					"name" : "Python3::InterpreterMultiConfig",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 1,
+					"id" : "config_iface::@e25dcaa2928f17e2214e",
+					"jsonFile" : "target-config_iface-d62e02fdc6a0465f2e79.json",
+					"name" : "config_iface",
+					"projectIndex" : 0
+				}
+			],
+			"directories" : 
+			[
+				{
+					"build" : ".",
+					"childIndexes" : 
+					[
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						15
+					],
+					"jsonFile" : "directory-.-9ad1a58d4644cf6543fa.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"projectIndex" : 0,
+					"source" : "."
+				},
+				{
+					"abstractTargetIndexes" : 
+					[
+						2
+					],
+					"build" : "config_iface",
+					"jsonFile" : "directory-config_iface-3d21ef7802020876b829.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "config_iface"
+				},
+				{
+					"build" : "src/core",
+					"jsonFile" : "directory-src.core-ef5f5cb8b1914756612c.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/core",
+					"targetIndexes" : 
+					[
+						3
+					]
+				},
+				{
+					"build" : "src/logging",
+					"jsonFile" : "directory-src.logging-3e3bfbc3b684ff0a6730.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/logging",
+					"targetIndexes" : 
+					[
+						5
+					]
+				},
+				{
+					"build" : "src/platform",
+					"jsonFile" : "directory-src.platform-12616cb0ff8785bf27d9.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/platform",
+					"targetIndexes" : 
+					[
+						9
+					]
+				},
+				{
+					"build" : "src/math",
+					"jsonFile" : "directory-src.math-742923519fb619bc6faf.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/math",
+					"targetIndexes" : 
+					[
+						6,
+						7
+					]
+				},
+				{
+					"abstractTargetIndexes" : 
+					[
+						0,
+						1
+					],
+					"build" : "src/codegen",
+					"jsonFile" : "directory-src.codegen-7f515429f9d48c85d4b9.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/codegen",
+					"targetIndexes" : 
+					[
+						11,
+						12
+					]
+				},
+				{
+					"build" : "src/serialization",
+					"jsonFile" : "directory-src.serialization-471f7845897680612920.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/serialization",
+					"targetIndexes" : 
+					[
+						14
+					]
+				},
+				{
+					"build" : "src/protocol",
+					"jsonFile" : "directory-src.protocol-728250116ba3d999489f.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/protocol",
+					"targetIndexes" : 
+					[
+						13
+					]
+				},
+				{
+					"build" : "src/compute",
+					"jsonFile" : "directory-src.compute-6f8cb1d6298c27634a97.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/compute",
+					"targetIndexes" : 
+					[
+						2
+					]
+				},
+				{
+					"build" : "src/middleware",
+					"jsonFile" : "directory-src.middleware-6950d13d1c6cfdaa9ba1.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/middleware",
+					"targetIndexes" : 
+					[
+						8
+					]
+				},
+				{
+					"build" : "src/engine",
+					"jsonFile" : "directory-src.engine-7f44e3b0efbcd9084473.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/engine",
+					"targetIndexes" : 
+					[
+						4
+					]
+				},
+				{
+					"build" : "src/plugin_api",
+					"jsonFile" : "directory-src.plugin_api-b362faf5c9443bf72fbe.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/plugin_api",
+					"targetIndexes" : 
+					[
+						10
+					]
+				},
+				{
+					"build" : "src/app",
+					"jsonFile" : "directory-src.app-1883429f8b5fe83f75b2.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/app",
+					"targetIndexes" : 
+					[
+						0
+					]
+				},
+				{
+					"build" : "src/test",
+					"jsonFile" : "directory-src.test-446dd7c66bbe84e141a7.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/test",
+					"targetIndexes" : 
+					[
+						15
+					]
+				},
+				{
+					"build" : "src/benchmark",
+					"jsonFile" : "directory-src.benchmark-37c80f01b9b928b2ac2f.json",
+					"minimumCMakeVersion" : 
+					{
+						"string" : "3.16"
+					},
+					"parentIndex" : 0,
+					"projectIndex" : 0,
+					"source" : "src/benchmark",
+					"targetIndexes" : 
+					[
+						1
+					]
+				}
+			],
+			"name" : "",
+			"projects" : 
+			[
+				{
+					"abstractTargetIndexes" : 
+					[
+						0,
+						1,
+						2
+					],
+					"directoryIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						15
+					],
+					"name" : "BuildOptimisationFixture",
+					"targetIndexes" : 
+					[
+						0,
+						1,
+						2,
+						3,
+						4,
+						5,
+						6,
+						7,
+						8,
+						9,
+						10,
+						11,
+						12,
+						13,
+						14,
+						15
+					]
+				}
+			],
+			"targets" : 
+			[
+				{
+					"directoryIndex" : 13,
+					"id" : "app::@ff93792cf40911dae1b8",
+					"jsonFile" : "target-app-b8563df8b860bdac21ea.json",
+					"name" : "app",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 15,
+					"id" : "benchmark::@06d4e844bc609143655b",
+					"jsonFile" : "target-benchmark-19f72298ec6df261dd9d.json",
+					"name" : "benchmark",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 9,
+					"id" : "compute::@57ee2daa4556d21903c5",
+					"jsonFile" : "target-compute-6dc3f11a20d2d5511565.json",
+					"name" : "compute",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 2,
+					"id" : "core::@0618756b1ff51bca1a0e",
+					"jsonFile" : "target-core-f6fe4afe56adf2f79c32.json",
+					"name" : "core",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 11,
+					"id" : "engine::@d30147da1c6e0503853c",
+					"jsonFile" : "target-engine-4957fab5e5063c742ecc.json",
+					"name" : "engine",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 3,
+					"id" : "logging::@48bfaf6ebac2073e8858",
+					"jsonFile" : "target-logging-6f013a6a37e4c9191604.json",
+					"name" : "logging",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 5,
+					"id" : "math_lib::@c3aed6c50cc997bcdd53",
+					"jsonFile" : "target-math_lib-c81aa6a50cda62d1d8e0.json",
+					"name" : "math_lib",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 5,
+					"id" : "math_objs::@c3aed6c50cc997bcdd53",
+					"jsonFile" : "target-math_objs-0beb73714272c76851db.json",
+					"name" : "math_objs",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 10,
+					"id" : "middleware::@652c2a627971f7366460",
+					"jsonFile" : "target-middleware-2ef066277aabe3b541cd.json",
+					"name" : "middleware",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 4,
+					"id" : "platform::@fcacbf0dd79acbb6fcc2",
+					"jsonFile" : "target-platform-f4f5f77602b828680fc2.json",
+					"name" : "platform",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 12,
+					"id" : "plugin_api::@dffa92d201ca1f5aaf0c",
+					"jsonFile" : "target-plugin_api-568b7d70eea4c6d30814.json",
+					"name" : "plugin_api",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 6,
+					"id" : "proto_gen::@e649d252a4bd824a981b",
+					"jsonFile" : "target-proto_gen-be982b9858ece07cf931.json",
+					"name" : "proto_gen",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 6,
+					"id" : "proto_msgs::@e649d252a4bd824a981b",
+					"jsonFile" : "target-proto_msgs-8447e022e8bec05f4ec5.json",
+					"name" : "proto_msgs",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 8,
+					"id" : "protocol::@265c2c6246c6aa3fd761",
+					"jsonFile" : "target-protocol-622eae6333aa933a1e6f.json",
+					"name" : "protocol",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 7,
+					"id" : "serialization::@e85bf88ff5936342e69b",
+					"jsonFile" : "target-serialization-218c66f7273efda2f7dd.json",
+					"name" : "serialization",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 14,
+					"id" : "test_runner::@b7fcbc08bf8df37e9c1b",
+					"jsonFile" : "target-test_runner-5e70b589b499eda39142.json",
+					"name" : "test_runner",
+					"projectIndex" : 0
+				}
+			]
+		}
+	],
+	"kind" : "codemodel",
+	"paths" : 
+	{
+		"build" : "/var/folders/nj/czmzrcxs31s_zf4rvv2x9l380000gn/T/tmp.HlUeloL6rK",
+		"source" : "/Users/cgilbert/Work/projects/build-optimisation/tests/fixture"
+	},
+	"version" : 
+	{
+		"major" : 2,
+		"minor" : 9
+	}
+}

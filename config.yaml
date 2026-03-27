@@ -1,0 +1,32 @@
+# Build Optimiser Configuration
+# Copy this file and fill in the paths for your environment.
+
+# Paths
+source_dir: ./tests/fixture
+build_dir: ./data/builds/main
+raw_data_dir: ./data/raw
+processed_data_dir: ./data/processed
+
+# Compiler (absolute paths)
+cc: /usr/bin/cc
+cxx: /usr/bin/c++
+
+# External dependency directories
+cmake_prefix_path: []
+
+# CMake pass-through cache variables
+cmake_cache_variables:
+  CMAKE_MAKE_PROGRAM: "/opt/homebrew/bin/ninja"
+  CMAKE_EXPORT_COMPILE_COMMANDS: "ON"
+
+# CMake File API client name
+cmake_file_api_client: "build-optimiser"
+
+# Git history
+git_history_months: 12
+
+# Build parallelism
+ninja_jobs: 0           # 0 means let Ninja decide (number of cores)
+
+# Preprocessed size parallelism
+preprocess_workers: 0   # 0 means use cpu_count()
