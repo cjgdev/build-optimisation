@@ -13,6 +13,7 @@ Outputs:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -103,14 +104,13 @@ def parse_header_tree_text(text: str) -> dict:
 def source_file_from_log_name(log_name: str, source_dir: str) -> str | None:
     """Reverse the log filename back to a canonical source path.
 
-    The wrapper uses tr '/' '_' on the source path, so we need to match
-    against known files rather than reverse the transformation (which is lossy).
+    The wrapper hashes the source path with MD5 (first 16 hex chars), so the
+    transformation is not reversible. Callers should use build_log_file_map()
+    which matches against known files instead.
     """
-    # Strip the .stderr suffix
     if log_name.endswith(".stderr"):
         log_name = log_name[:-7]
-    # The log name is the source path with / replaced by _
-    # We return None here and let the caller match against known files
+    # Cannot reverse a hash — return None and let the caller match against known files
     return None
 
 
@@ -123,12 +123,12 @@ def build_log_file_map(stderr_dir: Path, files_json_path: Path) -> dict[str, str
     if files_json_path.exists():
         with open(files_json_path) as f:
             files_data = json.load(f)
-        # Build a mapping: mangled name -> canonical path
+        # Build a mapping: hashed name -> canonical path
         known_files: dict[str, str] = {}
         for entry in files_data:
             path = entry["path"]
-            mangled = path.replace("/", "_") + ".stderr"
-            known_files[mangled] = path
+            hashed = hashlib.md5(path.encode()).hexdigest()[:16] + ".stderr"
+            known_files[hashed] = path
     else:
         known_files = {}
 
@@ -139,13 +139,6 @@ def build_log_file_map(stderr_dir: Path, files_json_path: Path) -> dict[str, str
         canonical = known_files.get(log_file.name)
         if canonical:
             result[str(log_file)] = canonical
-        else:
-            # Try to find by matching the basename
-            basename = log_file.name
-            for mangled, path in known_files.items():
-                if mangled == basename:
-                    result[str(log_file)] = path
-                    break
 
     return result
 

@@ -17,7 +17,8 @@ for arg in "$@"; do
 done
 
 if [ -n "$SOURCE_FILE" ]; then
-    LOG_FILE="${OUTPUT_DIR}/$(echo "$SOURCE_FILE" | tr '/' '_').stderr"
+    FILE_HASH=$(printf '%s' "$SOURCE_FILE" | (md5sum 2>/dev/null || md5) | awk '{print substr($1,1,16)}')
+    LOG_FILE="${OUTPUT_DIR}/${FILE_HASH}.stderr"
     "$COMPILER" "$@" 2> "$LOG_FILE"
     EXIT_CODE=$?
 else
