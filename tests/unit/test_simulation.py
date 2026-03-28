@@ -6,7 +6,10 @@ import pandas as pd
 from build_optimiser.simulation import (
     codegen_cascade_cost,
     expected_daily_cost,
+    feature_subset_build_time,
     rebuild_cost,
+    replay_git_history,
+    simulate_incremental_build,
     simulate_merge,
     simulate_split,
 )
@@ -121,3 +124,100 @@ class TestSimulateSplit:
         result = simulate_split(G, "B", [["b1.cpp"], ["b2.cpp"]], df)
         notes = " ".join(result["notes"])
         assert "generated" in notes.lower()
+
+
+class TestSimulateIncrementalBuild:
+    def test_no_modifications(self):
+        G = make_chain_graph()
+        times = {"A": 100, "B": 200, "C": 50}
+        assert simulate_incremental_build(G, [], times, n_cores=4) == 0.0
+
+    def test_leaf_change(self):
+        G = make_chain_graph()
+        times = {"A": 100, "B": 200, "C": 50}
+        # Changing A (no dependants) should only rebuild A
+        result = simulate_incremental_build(G, ["A"], times, n_cores=4)
+        assert result == 100
+
+    def test_root_change_rebuilds_chain(self):
+        G = make_chain_graph()
+        times = {"A": 100, "B": 200, "C": 50}
+        # Changing C forces rebuild of C, B, A
+        result = simulate_incremental_build(G, ["C"], times, n_cores=4)
+        # With 4 cores on a chain: C(50) -> B(200) -> A(100) = 350 sequential
+        assert result == 350
+
+    def test_enabled_targets_filter(self):
+        G = make_chain_graph()
+        times = {"A": 100, "B": 200, "C": 50}
+        # Changing C, but only B and C are enabled
+        result = simulate_incremental_build(G, ["C"], times, n_cores=4, enabled_targets={"B", "C"})
+        # Only rebuilds B and C (A is not enabled)
+        assert result == 250
+
+    def test_unlimited_cores(self):
+        # Diamond: A depends on B and C, B and C depend on D
+        G = nx.DiGraph()
+        G.add_edge("A", "B", is_direct=True)
+        G.add_edge("A", "C", is_direct=True)
+        G.add_edge("B", "D", is_direct=True)
+        G.add_edge("C", "D", is_direct=True)
+        times = {"A": 100, "B": 200, "C": 150, "D": 50}
+        # Changing D: rebuild D, B, C, A
+        # With unlimited cores: D(50) -> B,C parallel(200) -> A(100) = 350
+        result = simulate_incremental_build(G, ["D"], times, n_cores=0)
+        assert result == 350
+
+
+class TestReplayGitHistory:
+    def test_basic_replay(self):
+        G = make_chain_graph()
+        times = {"A": 100, "B": 200, "C": 50}
+        file_to_target = {"/src/a.cpp": "A", "/src/c.cpp": "C"}
+        commits = pd.DataFrame({
+            "commit_hash": ["h1", "h2"],
+            "author_email": ["alice@co.com", "bob@co.com"],
+            "source_file": ["/src/a.cpp", "/src/c.cpp"],
+        })
+        result = replay_git_history(G, commits, file_to_target, times, n_cores=4)
+        assert len(result) == 2
+        # Commit h1 modifies A (leaf), rebuild only A
+        h1 = result[result["commit_hash"] == "h1"].iloc[0]
+        assert h1["build_time_ms"] == 100
+        assert h1["modified_targets"] == 1
+
+    def test_unknown_file_skipped(self):
+        G = make_chain_graph()
+        times = {"A": 100, "B": 200, "C": 50}
+        file_to_target = {}
+        commits = pd.DataFrame({
+            "commit_hash": ["h1"],
+            "author_email": ["alice@co.com"],
+            "source_file": ["/src/unknown.cpp"],
+        })
+        result = replay_git_history(G, commits, file_to_target, times, n_cores=4)
+        assert result.iloc[0]["build_time_ms"] == 0.0
+
+
+class TestFeatureSubsetBuildTime:
+    def test_core_only(self):
+        G = make_chain_graph()
+        times = {"A": 100, "B": 200, "C": 50}
+        feature_groups = pd.DataFrame({
+            "cmake_target": ["A", "B", "C"],
+            "feature_group": ["feature_1", "core", "core"],
+        })
+        result = feature_subset_build_time(G, feature_groups, [], times, n_cores=4)
+        # Core only: B and C
+        assert result > 0
+
+    def test_all_groups(self):
+        G = make_chain_graph()
+        times = {"A": 100, "B": 200, "C": 50}
+        feature_groups = pd.DataFrame({
+            "cmake_target": ["A", "B", "C"],
+            "feature_group": ["feature_1", "core", "core"],
+        })
+        result = feature_subset_build_time(G, feature_groups, ["feature_1"], times, n_cores=4)
+        # All targets enabled
+        assert result == 350  # chain: C + B + A

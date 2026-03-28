@@ -1,4 +1,4 @@
-"""Rebuild cost estimation and merge/split simulation.
+"""Rebuild cost estimation, merge/split simulation, and incremental build modelling.
 
 All functions operate on the dependency graph with metrics attached as node attributes.
 """
@@ -146,7 +146,6 @@ def simulate_split(
     Returns before/after metrics per partition.
     """
     metrics = metrics_df.set_index("cmake_target")
-    file_metrics = pd.read_parquet  # placeholder — caller should pass file_df
 
     # Before
     before = {}
@@ -189,3 +188,272 @@ def simulate_split(
         "cross_partition_edges": cross_edges,
         "notes": notes,
     }
+
+
+def simulate_incremental_build(
+    G: nx.DiGraph,
+    modified_targets: list[str],
+    target_times: dict[str, float],
+    n_cores: int,
+    enabled_targets: set[str] | None = None,
+) -> float:
+    """Simulate a parallel incremental build and return wall-clock time.
+
+    Models a Ninja-like scheduler: walk the DAG in topological order,
+    scheduling up to n_cores ready targets in parallel.
+
+    Args:
+        G: Dependency DAG where A -> B means A depends on B.
+        modified_targets: Targets directly changed.
+        target_times: Dict mapping target name to compile time in ms.
+        n_cores: Number of parallel build slots.
+        enabled_targets: If provided, restrict rebuild set to these targets only.
+
+    Returns:
+        Simulated wall-clock build time in ms.
+    """
+    if not modified_targets:
+        return 0.0
+
+    # Find all targets that need rebuilding: modified + their transitive dependants
+    rev = G.reverse()
+    rebuild_set = set()
+    for t in modified_targets:
+        if t in rev:
+            rebuild_set |= nx.descendants(rev, t)
+        rebuild_set.add(t)
+
+    # Restrict to enabled targets if specified
+    if enabled_targets is not None:
+        rebuild_set &= enabled_targets
+
+    if not rebuild_set:
+        return 0.0
+
+    # Build subgraph of rebuild set (reversed edges: dependency order for scheduling)
+    sub = G.subgraph(rebuild_set).copy()
+
+    # Edge convention: A -> B means A depends on B.
+    # For scheduling: B must finish before A can start.
+    # A's dependencies (successors in graph) must all complete first.
+
+    # Simulate parallel execution with unlimited cores first (critical path)
+    # Process in reverse topological order: dependencies before dependants
+    finish_time: dict[str, float] = {}
+    try:
+        topo_order = list(reversed(list(nx.topological_sort(sub))))
+    except nx.NetworkXUnfeasible:
+        return sum(target_times.get(t, 0) for t in rebuild_set)
+
+    for target in topo_order:
+        deps_in_rebuild = [d for d in sub.successors(target) if d in finish_time]
+        earliest_start = max((finish_time[d] for d in deps_in_rebuild), default=0.0)
+        duration = target_times.get(target, 0)
+        finish_time[target] = earliest_start + duration
+
+    if n_cores <= 0:
+        return max(finish_time.values()) if finish_time else 0.0
+
+    # Re-simulate with core constraint using priority-queue scheduler
+    # dep_count: number of dependencies (successors) in rebuild set that must finish first
+    dep_count = {}
+    for t in rebuild_set:
+        dep_count[t] = sum(1 for s in sub.successors(t) if s in rebuild_set)
+
+    ready = sorted([t for t in rebuild_set if dep_count[t] == 0])
+    running: list[tuple[float, str]] = []
+    clock = 0.0
+    finished: set[str] = set()
+
+    import heapq
+
+    while ready or running:
+        while ready and len(running) < n_cores:
+            target = ready.pop(0)
+            duration = target_times.get(target, 0)
+            heapq.heappush(running, (clock + duration, target))
+
+        if not running:
+            break
+
+        end, done_target = heapq.heappop(running)
+        clock = end
+        finished.add(done_target)
+
+        # Release targets that depend on done_target (predecessors in our DAG)
+        for pred in sub.predecessors(done_target):
+            if pred in finished or pred not in dep_count:
+                continue
+            dep_count[pred] -= 1
+            if dep_count[pred] == 0:
+                ready.append(pred)
+        ready.sort()
+
+    return clock
+
+
+def replay_git_history(
+    G: nx.DiGraph,
+    commits: pd.DataFrame,
+    file_to_target: dict[str, str],
+    target_times: dict[str, float],
+    n_cores: int,
+    enabled_targets_per_team: dict[str, set[str]] | None = None,
+) -> pd.DataFrame:
+    """Replay historical commits and compute per-commit incremental build times.
+
+    Args:
+        G: Dependency DAG.
+        commits: DataFrame with columns (commit_hash, author_email, source_file).
+                 May also have (commit_date, team).
+        file_to_target: Mapping from source file path to target name.
+        target_times: Dict mapping target name to compile time in ms.
+        n_cores: Number of parallel build slots.
+        enabled_targets_per_team: Optional dict mapping team name to set of enabled targets.
+
+    Returns:
+        DataFrame with columns (commit_hash, author_email, modified_targets,
+        rebuild_count, build_time_ms, team).
+    """
+    results = []
+
+    for commit_hash, group in commits.groupby("commit_hash"):
+        author = group["author_email"].iloc[0] if "author_email" in group.columns else ""
+        team = group["team"].iloc[0] if "team" in group.columns else ""
+
+        # Find modified targets
+        modified = set()
+        for f in group["source_file"]:
+            t = file_to_target.get(f)
+            if t and t in G:
+                modified.add(t)
+
+        if not modified:
+            results.append({
+                "commit_hash": commit_hash,
+                "author_email": author,
+                "modified_targets": 0,
+                "rebuild_count": 0,
+                "build_time_ms": 0.0,
+                "team": team,
+            })
+            continue
+
+        # Determine enabled targets
+        enabled = None
+        if enabled_targets_per_team and team in enabled_targets_per_team:
+            enabled = enabled_targets_per_team[team]
+
+        build_time = simulate_incremental_build(
+            G, list(modified), target_times, n_cores, enabled_targets=enabled,
+        )
+
+        # Count rebuild set
+        rev = G.reverse()
+        rebuild_set = set()
+        for t in modified:
+            if t in rev:
+                rebuild_set |= nx.descendants(rev, t)
+            rebuild_set.add(t)
+        if enabled is not None:
+            rebuild_set &= enabled
+
+        results.append({
+            "commit_hash": commit_hash,
+            "author_email": author,
+            "modified_targets": len(modified),
+            "rebuild_count": len(rebuild_set),
+            "build_time_ms": build_time,
+            "team": team,
+        })
+
+    return pd.DataFrame(results)
+
+
+def feature_subset_build_time(
+    G: nx.DiGraph,
+    feature_groups: pd.DataFrame,
+    group_combination: list[str],
+    target_times: dict[str, float],
+    n_cores: int,
+) -> float:
+    """Compute full build time for a given combination of enabled feature groups.
+
+    Args:
+        G: Dependency DAG.
+        feature_groups: DataFrame with (cmake_target, feature_group).
+        group_combination: List of feature group names to enable (core is always included).
+        target_times: Dict mapping target name to compile time in ms.
+        n_cores: Number of parallel build slots.
+
+    Returns:
+        Simulated wall-clock full build time in ms.
+    """
+    enabled_groups = set(group_combination) | {"core"}
+    group_map = dict(zip(feature_groups["cmake_target"], feature_groups["feature_group"]))
+
+    enabled = {t for t, g in group_map.items() if g in enabled_groups and t in G}
+
+    if not enabled:
+        return 0.0
+
+    # For a full build, all enabled targets are "modified"
+    return simulate_incremental_build(G, list(enabled), target_times, n_cores, enabled_targets=enabled)
+
+
+def sensitivity_analysis(
+    G: nx.DiGraph,
+    exe_lib_matrix: pd.DataFrame,
+    target_times: dict[str, float],
+    k_range: range,
+    n_cores: int,
+) -> pd.DataFrame:
+    """Run feature group discovery for each K and return metrics.
+
+    Args:
+        G: Dependency DAG.
+        exe_lib_matrix: Long-format executable-library matrix.
+        target_times: Dict mapping target name to compile time in ms.
+        k_range: Range of K values to evaluate.
+        n_cores: Number of parallel build slots.
+
+    Returns:
+        DataFrame with columns (k, cross_group_edges, core_size, modularity).
+    """
+    from build_optimiser.features import identify_core_libraries
+    from build_optimiser.partitioning import extract_feature_groups, hierarchical_communities
+
+    core = identify_core_libraries(exe_lib_matrix)
+
+    results = []
+    for k in k_range:
+        # Use Leiden with resolution tuned to produce ~k communities
+        # Higher resolution -> more communities
+        res = k * 0.5
+        communities = hierarchical_communities(G, resolution_range=[res])
+
+        if not communities["results"]:
+            continue
+
+        fg = extract_feature_groups(communities, core, resolution=res)
+        group_map = dict(zip(fg["cmake_target"], fg["feature_group"]))
+
+        # Count cross-group edges
+        cross_edges = 0
+        for u, v in G.edges():
+            g_u = group_map.get(u, "core")
+            g_v = group_map.get(v, "core")
+            if g_u != g_v and g_u != "core" and g_v != "core":
+                cross_edges += 1
+
+        core_size = sum(1 for g in group_map.values() if g == "core")
+        n_groups = len(set(group_map.values()))
+
+        results.append({
+            "k": k,
+            "actual_groups": n_groups,
+            "cross_group_edges": cross_edges,
+            "core_size": core_size,
+        })
+
+    return pd.DataFrame(results)

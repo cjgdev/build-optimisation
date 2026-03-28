@@ -26,6 +26,17 @@ from build_optimiser.metrics import TARGET_METRICS_SCHEMA, aggregate_file_metric
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+# Map CMake target type names to lowercase snake_case for consistency
+_TARGET_TYPE_MAP = {
+    "EXECUTABLE": "executable",
+    "STATIC_LIBRARY": "static_library",
+    "SHARED_LIBRARY": "shared_library",
+    "MODULE_LIBRARY": "module_library",
+    "OBJECT_LIBRARY": "object_library",
+    "INTERFACE_LIBRARY": "interface_library",
+    "UTILITY": "custom_target",
+}
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Consolidate target-level metrics")
@@ -136,7 +147,8 @@ def main() -> None:
 
         # Target metadata
         agg["cmake_target"] = target_name
-        agg["target_type"] = meta.get("type", "")
+        raw_type = meta.get("type", "")
+        agg["target_type"] = _TARGET_TYPE_MAP.get(raw_type, "unknown")
         agg["output_artifact"] = meta.get("name_on_disk") or ""
 
         # Build step timing

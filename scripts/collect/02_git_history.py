@@ -5,8 +5,10 @@ Runs git log --numstat over the configured time window, scoped to files
 that participate in the build (from files.json).
 
 Outputs:
-    - data/raw/git_history_detail.csv  (one row per file-commit pair)
-    - data/raw/git_history_summary.csv (one row per file, aggregated)
+    - data/raw/git_history_detail.csv        (one row per file-commit pair)
+    - data/raw/git_history_summary.csv       (one row per file, aggregated)
+    - data/raw/contributor_file_commits.csv  (per-contributor-per-file commit counts)
+    - data/raw/contributors.csv              (per-contributor summary)
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ from build_optimiser.config import Config
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-COMMIT_RE = re.compile(r"^COMMIT:([a-f0-9]+)\|(.+)\|(.+)\|(.*)$")
+COMMIT_RE = re.compile(r"^COMMIT:([a-f0-9]+)\|(.+)\|(.+)\|(.+)\|(.*)$")
 NUMSTAT_RE = re.compile(r"^(\d+|-)\t(\d+|-)\t(.+)$")
 
 
@@ -46,7 +48,8 @@ def parse_git_log(output: str, git_toplevel: str) -> list[dict]:
                 "commit_hash": commit_match.group(1),
                 "commit_date": commit_match.group(2),
                 "author": commit_match.group(3),
-                "message": commit_match.group(4),
+                "author_email": commit_match.group(4),
+                "message": commit_match.group(5),
             }
             continue
 
@@ -100,6 +103,46 @@ def summarise(records: list[dict]) -> list[dict]:
     return summaries
 
 
+def summarise_contributor_files(records: list[dict]) -> list[dict]:
+    """Aggregate per-contributor-per-file commit counts."""
+    counts: dict[tuple[str, str], int] = defaultdict(int)
+    for r in records:
+        key = (r["author_email"], r["source_file"])
+        counts[key] += 1
+
+    return [
+        {"contributor": email, "source_file": source_file, "commit_count": count}
+        for (email, source_file), count in sorted(counts.items())
+    ]
+
+
+def summarise_contributors(records: list[dict]) -> list[dict]:
+    """Aggregate per-contributor summary statistics."""
+    by_contributor: dict[str, list[dict]] = defaultdict(list)
+    for r in records:
+        by_contributor[r["author_email"]].append(r)
+
+    summaries = []
+    for contributor, commits in sorted(by_contributor.items()):
+        # Deduplicate by commit hash to count distinct commits
+        unique_hashes = set()
+        files = set()
+        dates = []
+        for c in commits:
+            unique_hashes.add(c["commit_hash"])
+            files.add(c["source_file"])
+            dates.append(c["commit_date"])
+        summaries.append({
+            "contributor": contributor,
+            "total_commits": len(unique_hashes),
+            "first_commit_date": min(dates),
+            "last_commit_date": max(dates),
+            "files_touched": len(files),
+        })
+
+    return summaries
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Step 2: Git history collection")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
@@ -133,7 +176,7 @@ def main() -> None:
         "git", "-C", git_toplevel, "log",
         f"--since={since}",
         "--numstat",
-        "--pretty=format:COMMIT:%H|%aI|%an|%s",
+        "--pretty=format:COMMIT:%H|%aI|%an|%ae|%s",
         "--", f"{source_dir}/**/*.cpp", f"{source_dir}/**/*.cc",
         f"{source_dir}/**/*.cxx", f"{source_dir}/**/*.h",
         f"{source_dir}/**/*.hpp", f"{source_dir}/**/*.hxx",
@@ -157,7 +200,10 @@ def main() -> None:
     # Write detail CSV
     cfg.raw_data_dir.mkdir(parents=True, exist_ok=True)
     detail_path = cfg.raw_data_dir / "git_history_detail.csv"
-    detail_fields = ["source_file", "commit_hash", "commit_date", "author", "message", "lines_added", "lines_deleted"]
+    detail_fields = [
+        "source_file", "commit_hash", "commit_date", "author", "author_email",
+        "message", "lines_added", "lines_deleted",
+    ]
     with open(detail_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=detail_fields, extrasaction="ignore")
         writer.writeheader()
@@ -176,6 +222,26 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(summaries)
     logger.info("Wrote %s (%d rows)", summary_path, len(summaries))
+
+    # Write contributor-file commit counts
+    contributor_files = summarise_contributor_files(records)
+    contrib_file_path = cfg.raw_data_dir / "contributor_file_commits.csv"
+    contrib_file_fields = ["contributor", "source_file", "commit_count"]
+    with open(contrib_file_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=contrib_file_fields)
+        writer.writeheader()
+        writer.writerows(contributor_files)
+    logger.info("Wrote %s (%d rows)", contrib_file_path, len(contributor_files))
+
+    # Write contributor summary
+    contributors = summarise_contributors(records)
+    contributors_path = cfg.raw_data_dir / "contributors.csv"
+    contributors_fields = ["contributor", "total_commits", "first_commit_date", "last_commit_date", "files_touched"]
+    with open(contributors_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=contributors_fields)
+        writer.writeheader()
+        writer.writerows(contributors)
+    logger.info("Wrote %s (%d rows)", contributors_path, len(contributors))
 
     logger.info("Step 2 complete.")
 

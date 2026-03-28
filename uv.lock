@@ -11,6 +11,20 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "adjusttext"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4c/d4/6585f3b6fdb75648bca294664af4becc8aa2fb3fb08f4e4e9fd27e10d773/adjusttext-1.3.0.tar.gz", hash = "sha256:4ab75cd4453af4828876ac3e964f2c49be642ea834f0c1f7449558d5f12cbca1", size = 15724, upload-time = "2024-10-31T16:45:36.101Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/53/1c/8feedd607cc14c5df9aef74fe3af9a99bf660743b842a9b5b1865326b4aa/adjustText-1.3.0-py3-none-any.whl", hash = "sha256:da23d7b24b6db5ffa039bb136bfa556207365e32f48ac74b07ad26dd485bc691", size = 13154, upload-time = "2024-10-31T16:45:35.227Z" },
+]
+
+[[package]]
 name = "anyio"
 version = "4.13.0"
 source = { registry = "https://pypi.org/simple" }
@@ -158,10 +172,12 @@ name = "build-optimiser"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
+    { name = "adjusttext" },
     { name = "igraph" },
     { name = "jupyterlab" },
     { name = "leidenalg" },
     { name = "matplotlib" },
+    { name = "missingno" },
     { name = "networkx" },
     { name = "pandas" },
     { name = "pyarrow" },
@@ -171,6 +187,7 @@ dependencies = [
     { name = "pyvis" },
     { name = "pyyaml" },
     { name = "scikit-learn" },
+    { name = "scipy" },
     { name = "seaborn" },
     { name = "umap-learn" },
 ]
@@ -183,10 +200,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "adjusttext", specifier = ">=1.1" },
     { name = "igraph", specifier = ">=0.11" },
     { name = "jupyterlab", specifier = ">=4.0" },
     { name = "leidenalg", specifier = ">=0.10" },
     { name = "matplotlib", specifier = ">=3.7" },
+    { name = "missingno", specifier = ">=0.5.2" },
     { name = "networkx", specifier = ">=3.0" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "pyarrow", specifier = ">=14.0" },
@@ -198,6 +217,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1" },
     { name = "scikit-learn", specifier = ">=1.3" },
+    { name = "scipy", specifier = ">=1.11" },
     { name = "seaborn", specifier = ">=0.13" },
     { name = "umap-learn", specifier = ">=0.5" },
 ]
@@ -1109,6 +1129,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c7/74/97e72a36efd4ae2bccb3463284300f8953f199b5ffbc04cbbb0ec78f74b1/matplotlib_inline-0.2.1.tar.gz", hash = "sha256:e1ee949c340d771fc39e241ea75683deb94762c8fa5f2927ec57c83c4dffa9fe", size = 8110, upload-time = "2025-10-23T09:00:22.126Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/af/33/ee4519fa02ed11a94aef9559552f3b17bb863f2ecfe1a35dc7f548cde231/matplotlib_inline-0.2.1-py3-none-any.whl", hash = "sha256:d56ce5156ba6085e00a9d54fead6ed29a9c47e215cd1bba2e976ef39f5710a76", size = 9516, upload-time = "2025-10-23T09:00:20.675Z" },
+]
+
+[[package]]
+name = "missingno"
+version = "0.5.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "scipy" },
+    { name = "seaborn" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2b/f9/e20220b851bc6d7abf70b403a3080d6af946ed4b13b2bf91ef4e74d2aec9/missingno-0.5.2.tar.gz", hash = "sha256:4a4baa9ca9f9e4e0d9402455df26b656632e94b99e87fa64c0cdbbbc722837ac", size = 17489, upload-time = "2023-02-26T20:10:29.329Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/87/22/cd5cf999af21c2f97486622c551ac3d07361ced8125121e907f588ff5f24/missingno-0.5.2-py3-none-any.whl", hash = "sha256:55782621ce09ba0f0a1d08e5bd6d6fe1946469fb03951fadf7d209911ca5b072", size = 8704, upload-time = "2023-02-26T20:10:26.042Z" },
 ]
 
 [[package]]
