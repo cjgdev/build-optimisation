@@ -9,6 +9,7 @@ Outputs:
     - data/raw/git_history_summary.csv       (one row per file, aggregated)
     - data/raw/contributor_file_commits.csv  (per-contributor-per-file commit counts)
     - data/raw/contributors.csv              (per-contributor summary)
+    - data/processed/git_commit_log.parquet  (one row per commit × file, excluding merges and mega-commits)
 """
 
 from __future__ import annotations
@@ -23,7 +24,11 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
@@ -77,6 +82,68 @@ def parse_git_log(output: str, git_toplevel: str) -> list[dict]:
             })
 
     return records
+
+
+MAX_FILES_PER_COMMIT = 500
+
+
+def filter_mega_commits(records: list[dict]) -> list[dict]:
+    """Remove records belonging to commits that touch more than MAX_FILES_PER_COMMIT files."""
+    files_per_commit: dict[str, set[str]] = defaultdict(set)
+    for r in records:
+        files_per_commit[r["commit_hash"]].add(r["source_file"])
+
+    mega_hashes = set()
+    for commit_hash, files in files_per_commit.items():
+        if len(files) > MAX_FILES_PER_COMMIT:
+            mega_hashes.add(commit_hash)
+            logger.warning(
+                "Skipping mega-commit %s (%d files > %d threshold)",
+                commit_hash[:12], len(files), MAX_FILES_PER_COMMIT,
+            )
+
+    if mega_hashes:
+        records = [r for r in records if r["commit_hash"] not in mega_hashes]
+        logger.info("Filtered out %d mega-commits, %d records remain", len(mega_hashes), len(records))
+
+    return records
+
+
+def write_commit_log_parquet(records: list[dict], output_path: Path) -> None:
+    """Write the raw commit-level records to a parquet file."""
+    schema = pa.schema([
+        ("commit_hash", pa.string()),
+        ("timestamp", pa.timestamp("us", tz="UTC")),
+        ("contributor", pa.string()),
+        ("source_file", pa.string()),
+        ("lines_added", pa.int64()),
+        ("lines_deleted", pa.int64()),
+    ])
+
+    rows = []
+    for r in records:
+        # Parse ISO 8601 timestamp to UTC datetime
+        ts = datetime.fromisoformat(r["commit_date"]).astimezone(timezone.utc)
+        rows.append({
+            "commit_hash": r["commit_hash"],
+            "timestamp": ts,
+            "contributor": r["author_email"],
+            "source_file": r["source_file"],
+            "lines_added": r["lines_added"],
+            "lines_deleted": r["lines_deleted"],
+        })
+
+    if rows:
+        import pandas as pd
+        df = pd.DataFrame(rows)
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+        table = pa.Table.from_pandas(df, schema=schema, preserve_index=False)
+    else:
+        table = pa.table({name: pa.array([], type=field.type) for name, field in zip(schema.names, schema)})
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(table, output_path)
+    logger.info("Wrote %s (%d rows)", output_path, len(rows))
 
 
 def summarise(records: list[dict]) -> list[dict]:
@@ -175,6 +242,7 @@ def main() -> None:
     cmd = [
         "git", "-C", git_toplevel, "log",
         f"--since={since}",
+        "--no-merges",
         "--numstat",
         "--pretty=format:COMMIT:%H|%aI|%an|%ae|%s",
         "--", f"{source_dir}/**/*.cpp", f"{source_dir}/**/*.cc",
@@ -196,6 +264,13 @@ def main() -> None:
     if known_files:
         records = [r for r in records if r["source_file"] in known_files]
         logger.info("After scoping: %d records for known build files", len(records))
+
+    # Filter out mega-commits (>500 files) that distort coupling analysis
+    records = filter_mega_commits(records)
+
+    # Write commit-level parquet (before aggregation)
+    commit_log_path = cfg.processed_data_dir / "git_commit_log.parquet"
+    write_commit_log_parquet(records, commit_log_path)
 
     # Write detail CSV
     cfg.raw_data_dir.mkdir(parents=True, exist_ok=True)

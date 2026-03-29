@@ -48,6 +48,7 @@ FILE_METRICS_SCHEMA = pa.schema([
     ("git_lines_deleted", pa.int64()),
     ("git_churn", pa.int64()),
     ("git_distinct_authors", pa.int64()),
+    ("git_first_change_date", pa.string()),
     ("git_last_change_date", pa.string()),
     ("expansion_ratio", pa.float64()),
     ("compile_rate_lines_per_sec", pa.float64()),
@@ -58,6 +59,8 @@ TARGET_METRICS_SCHEMA = pa.schema([
     ("cmake_target", pa.string()),
     ("target_type", pa.string()),
     ("output_artifact", pa.string()),
+    ("source_directory", pa.string()),
+    ("directory_depth", pa.int64()),
     # Source file counts
     ("file_count", pa.int64()),
     ("codegen_file_count", pa.int64()),
@@ -133,6 +136,23 @@ EDGE_LIST_SCHEMA = pa.schema([
     ("source_target_type", pa.string()),
     ("dest_target_type", pa.string()),
     ("from_dependency", pa.string()),
+    ("cmake_visibility", pa.string()),
+])
+
+HEADER_EDGES_SCHEMA = pa.schema([
+    ("includer", pa.string()),
+    ("included", pa.string()),
+    ("depth", pa.int64()),
+    ("source_file", pa.string()),
+    ("is_system", pa.bool_()),
+])
+
+HEADER_METRICS_SCHEMA = pa.schema([
+    ("header_file", pa.string()),
+    ("cmake_target", pa.string()),
+    ("sloc", pa.int64()),
+    ("source_size_bytes", pa.int64()),
+    ("is_system", pa.bool_()),
 ])
 
 

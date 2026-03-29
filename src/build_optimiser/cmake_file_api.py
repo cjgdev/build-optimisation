@@ -68,6 +68,8 @@ class Target:
     order_dependencies: tuple[str, ...] | None
     compile_dependencies: tuple[str, ...] | None
     object_dependencies: tuple[str, ...] | None
+    interface_link_libraries: tuple[str, ...] | None  # codemodel 2.9+
+    interface_compile_dependencies: tuple[str, ...] | None  # codemodel 2.9+
     all_dependencies: tuple[str, ...]
     link_fragments: tuple[str, ...]
     backtrace_graph: dict = field(default_factory=dict)
@@ -81,6 +83,7 @@ class Edge:
     is_direct: bool
     dependency_type: str  # link / compile / object / order / transitive
     from_dependency: str | None = None
+    cmake_visibility: str = "UNKNOWN"  # PUBLIC / PRIVATE / INTERFACE / TRANSITIVE / UNKNOWN
 
 
 @dataclass
@@ -275,6 +278,8 @@ def _parse_target(data: dict, source_dir: str, build_dir: str) -> Target:
     order_deps = _extract_dep_ids(data, "orderDependencies")
     compile_deps = _extract_dep_ids(data, "compileDependencies")
     object_deps = _extract_dep_ids(data, "objectDependencies")
+    iface_link_libs = _extract_dep_ids(data, "interfaceLinkLibraries")
+    iface_compile_deps = _extract_dep_ids(data, "interfaceCompileDependencies")
 
     # Link fragments
     link_data = data.get("link", {})
@@ -297,6 +302,8 @@ def _parse_target(data: dict, source_dir: str, build_dir: str) -> Target:
         order_dependencies=order_deps,
         compile_dependencies=compile_deps,
         object_dependencies=object_deps,
+        interface_link_libraries=iface_link_libs,
+        interface_compile_dependencies=iface_compile_deps,
         all_dependencies=all_deps,
         link_fragments=link_frags,
         backtrace_graph=data.get("backtraceGraph", {}),
@@ -328,6 +335,17 @@ def _extract_edges(
             direct_object_ids = set(target.object_dependencies or ())
             all_direct_ids = direct_link_ids | direct_order_ids | direct_compile_ids | direct_object_ids
 
+            # interfaceCompileDependencies distinguishes PUBLIC from PRIVATE:
+            # PUBLIC deps appear in both linkLibraries and interfaceCompileDependencies,
+            # PRIVATE deps appear only in linkLibraries.
+            iface_compile_ids = set(target.interface_compile_dependencies or ())
+
+            def _link_visibility(dep_id: str) -> str:
+                """Determine cmake visibility for a direct link dependency."""
+                if dep_id in iface_compile_ids:
+                    return "PUBLIC"
+                return "PRIVATE"
+
             # Process direct dependencies with their type
             for dep_id in direct_link_ids:
                 dep_name = id_to_name.get(dep_id)
@@ -337,6 +355,7 @@ def _extract_edges(
                         dest_target=dep_name,
                         is_direct=True,
                         dependency_type="link",
+                        cmake_visibility=_link_visibility(dep_id),
                     ))
 
             for dep_id in direct_order_ids:
@@ -383,6 +402,7 @@ def _extract_edges(
                             dest_target=dep_name,
                             is_direct=False,
                             dependency_type="transitive",
+                            cmake_visibility="TRANSITIVE",
                         ))
         else:
             # Pre-2.9: all edges classified as transitive
@@ -394,6 +414,7 @@ def _extract_edges(
                         dest_target=dep_name,
                         is_direct=False,
                         dependency_type="transitive",
+                        cmake_visibility="UNKNOWN",
                     ))
 
     return edges

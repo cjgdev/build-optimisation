@@ -154,16 +154,18 @@ def main() -> None:
             "total_lines_deleted": "git_lines_deleted",
             "total_churn": "git_churn",
             "distinct_authors": "git_distinct_authors",
+            "first_change_date": "git_first_change_date",
             "last_change_date": "git_last_change_date",
         })
         git_cols = git_cols[["source_file", "git_commit_count", "git_lines_added",
                              "git_lines_deleted", "git_churn", "git_distinct_authors",
-                             "git_last_change_date"]].copy()
+                             "git_first_change_date", "git_last_change_date"]].copy()
         git_cols = git_cols.drop_duplicates(subset="source_file", keep="last")
         spine = spine.merge(git_cols, on="source_file", how="left")
     else:
         for col in ["git_commit_count", "git_lines_added", "git_lines_deleted",
-                     "git_churn", "git_distinct_authors", "git_last_change_date"]:
+                     "git_churn", "git_distinct_authors", "git_first_change_date",
+                     "git_last_change_date"]:
             spine[col] = pd.NA
 
     # Fill NA for generated files' git fields with 0
@@ -172,6 +174,10 @@ def main() -> None:
                 "git_churn", "git_distinct_authors"]:
         if col in spine.columns:
             spine.loc[gen_mask, col] = spine.loc[gen_mask, col].fillna(0)
+
+    # Ensure git_first_change_date is null for generated files
+    if "git_first_change_date" in spine.columns:
+        spine.loc[gen_mask, "git_first_change_date"] = None
 
     # Derived columns
     spine["expansion_ratio"] = spine["preprocessed_bytes"] / spine["source_size_bytes"].replace(0, pd.NA)

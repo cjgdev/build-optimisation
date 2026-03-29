@@ -126,11 +126,14 @@ class TestSchemas:
 
     def test_target_metrics_schema_valid(self):
         assert isinstance(TARGET_METRICS_SCHEMA, pa.Schema)
-        assert len(TARGET_METRICS_SCHEMA) >= 50
+        assert len(TARGET_METRICS_SCHEMA) >= 52
+        assert TARGET_METRICS_SCHEMA.field("source_directory").type == pa.string()
+        assert TARGET_METRICS_SCHEMA.field("directory_depth").type == pa.int64()
 
     def test_edge_list_schema_valid(self):
         assert isinstance(EDGE_LIST_SCHEMA, pa.Schema)
-        assert len(EDGE_LIST_SCHEMA) == 7
+        assert len(EDGE_LIST_SCHEMA) == 8
+        assert EDGE_LIST_SCHEMA.field("cmake_visibility").type == pa.string()
 
     def test_schemas_have_no_duplicate_fields(self):
         for schema in [FILE_METRICS_SCHEMA, TARGET_METRICS_SCHEMA, EDGE_LIST_SCHEMA]:

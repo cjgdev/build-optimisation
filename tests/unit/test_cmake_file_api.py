@@ -109,6 +109,19 @@ class TestTargetParsing:
     def test_name_on_disk(self, codemodel: CodeModel):
         assert codemodel.targets["core"].name_on_disk == "libcore.a"
 
+    def test_interface_compile_dependencies_populated(self, codemodel: CodeModel):
+        # middleware has PUBLIC deps, so interface_compile_dependencies should be set
+        middleware = codemodel.targets["middleware"]
+        assert middleware.interface_compile_dependencies is not None
+        assert len(middleware.interface_compile_dependencies) > 0
+
+    def test_private_deps_not_in_interface_compile(self, codemodel: CodeModel):
+        # engine has PRIVATE dep on middleware — should not have interfaceCompileDependencies
+        engine = codemodel.targets["engine"]
+        iface_ids = set(engine.interface_compile_dependencies or ())
+        # middleware should not be in interface compile deps since it's PRIVATE
+        assert not iface_ids, "engine has only PRIVATE deps, so interface_compile_dependencies should be empty"
+
 
 class TestCodegenFiles:
     def test_proto_msgs_has_generated_sources(self, codemodel: CodeModel):
@@ -193,6 +206,36 @@ class TestEdges:
         valid_types = {"link", "compile", "object", "order", "transitive"}
         for edge in codemodel.edges:
             assert edge.dependency_type in valid_types
+
+    def test_visibility_values_valid(self, codemodel: CodeModel):
+        valid = {"PUBLIC", "PRIVATE", "INTERFACE", "TRANSITIVE", "UNKNOWN"}
+        for edge in codemodel.edges:
+            assert edge.cmake_visibility in valid, (
+                f"Invalid visibility '{edge.cmake_visibility}' on {edge.source_target} -> {edge.dest_target}"
+            )
+
+    def test_transitive_edges_have_transitive_visibility(self, codemodel: CodeModel):
+        for edge in codemodel.edges:
+            if not edge.is_direct:
+                assert edge.cmake_visibility == "TRANSITIVE"
+
+    def test_private_link_visibility(self, codemodel: CodeModel):
+        # engine -> middleware is PRIVATE (target_link_libraries(engine PRIVATE middleware))
+        engine_to_middleware = [
+            e for e in codemodel.edges
+            if e.source_target == "engine" and e.dest_target == "middleware" and e.dependency_type == "link"
+        ]
+        assert len(engine_to_middleware) == 1
+        assert engine_to_middleware[0].cmake_visibility == "PRIVATE"
+
+    def test_public_link_visibility(self, codemodel: CodeModel):
+        # middleware -> protocol is PUBLIC (target_link_libraries(middleware PUBLIC protocol compute logging))
+        middleware_to_protocol = [
+            e for e in codemodel.edges
+            if e.source_target == "middleware" and e.dest_target == "protocol" and e.dependency_type == "link"
+        ]
+        assert len(middleware_to_protocol) == 1
+        assert middleware_to_protocol[0].cmake_visibility == "PUBLIC"
 
 
 class TestCreateQueryFiles:

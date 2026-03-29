@@ -151,6 +151,16 @@ def main() -> None:
         agg["target_type"] = _TARGET_TYPE_MAP.get(raw_type, "unknown")
         agg["output_artifact"] = meta.get("name_on_disk") or ""
 
+        # Source directory and depth
+        target_source_dir = meta.get("source_dir", "")
+        agg["source_directory"] = target_source_dir
+        try:
+            rel_path = Path(target_source_dir).relative_to(cfg.source_dir.resolve())
+            agg["directory_depth"] = len(rel_path.parts)
+        except (ValueError, TypeError):
+            # source_dir not relative to project root — fall back to counting separators
+            agg["directory_depth"] = 0
+
         # Build step timing
         times = step_times.get(target_name, {})
         agg["codegen_time_ms"] = times.get("codegen", 0)
