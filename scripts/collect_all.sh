@@ -26,7 +26,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)/collect"
-CONSOLIDATE_DIR="$(cd "$(dirname "$0")" && pwd)/consolidate"
 TOTAL_START=$SECONDS
 
 run_step() {
@@ -95,11 +94,6 @@ fi
 for pid in "${PIDS[@]}"; do
     wait "$pid"
 done
-
-# Consolidation: contributor metrics (needs steps 01 + 02 complete)
-echo "=== Consolidation: contributor metrics ==="
-python "$CONSOLIDATE_DIR/build_contributor_metrics.py" --config "$CONFIG"
-echo "=== Consolidation: contributor metrics complete ==="
 
 echo ""
 echo "=== Collection complete in $(( SECONDS - TOTAL_START ))s ==="
