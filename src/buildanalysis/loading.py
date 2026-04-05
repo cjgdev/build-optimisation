@@ -414,19 +414,25 @@ class BuildDataset:
 
     # -- Optional config properties -----------------------------------------
 
+    def _find_project_file(self, filename: str) -> Path | None:
+        """Walk up from data_dir to find a file in an ancestor directory."""
+        search = self._data_dir
+        for _ in range(5):
+            candidate = search / filename
+            if candidate.exists():
+                return candidate
+            search = search.parent
+        return None
+
     @property
     def team_config(self):
-        """Lazily load team config from config/teams.yaml relative to project root.
+        """Lazily load team config from teams.yaml in the project root.
 
         Returns None if the file does not exist.
         """
         if not hasattr(self, "_team_config"):
-            # Walk up from data_dir to find project root (where config/ lives)
-            config_path = self._data_dir.parent / "config" / "teams.yaml"
-            if not config_path.exists():
-                # Try relative to data_dir's grandparent
-                config_path = self._data_dir.parent.parent / "config" / "teams.yaml"
-            if config_path.exists():
+            config_path = self._find_project_file("teams.yaml")
+            if config_path is not None:
                 from buildanalysis.teams import TeamConfig
 
                 self._team_config = TeamConfig.from_yaml(config_path)
@@ -436,15 +442,13 @@ class BuildDataset:
 
     @property
     def module_config(self):
-        """Lazily load module config from config/modules.yaml relative to project root.
+        """Lazily load module config from modules.yaml in the project root.
 
         Returns None if the file does not exist.
         """
         if not hasattr(self, "_module_config"):
-            config_path = self._data_dir.parent / "config" / "modules.yaml"
-            if not config_path.exists():
-                config_path = self._data_dir.parent.parent / "config" / "modules.yaml"
-            if config_path.exists():
+            config_path = self._find_project_file("modules.yaml")
+            if config_path is not None:
                 from buildanalysis.modules import ModuleConfig
 
                 self._module_config = ModuleConfig.from_yaml(config_path)

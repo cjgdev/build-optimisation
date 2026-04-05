@@ -1,0 +1,68 @@
+modules:
+  - name: "Core"
+    description: "Core foundation libraries"
+    category: "shared"
+    owning_team: "Platform"
+    target_patterns:
+      - "core"
+      - "logging"
+
+  - name: "Platform"
+    description: "Platform abstraction layer"
+    category: "infrastructure"
+    owning_team: "Platform"
+    target_patterns:
+      - "platform"
+      - "config_iface"
+
+  - name: "Math"
+    description: "Math and computation libraries"
+    category: "shared"
+    owning_team: "Platform"
+    target_patterns:
+      - "math_*"
+      - "compute"
+
+  - name: "Engine"
+    description: "Application engine"
+    category: "domain"
+    target_patterns:
+      - "engine"
+
+  - name: "Middleware"
+    description: "Middleware services"
+    category: "domain"
+    target_patterns:
+      - "middleware"
+
+  - name: "Protocol"
+    description: "Protocol and serialization"
+    category: "domain"
+    target_patterns:
+      - "protocol"
+      - "serialization"
+
+  - name: "Codegen"
+    description: "Code generation and protobuf"
+    category: "infrastructure"
+    target_patterns:
+      - "proto_*"
+
+  - name: "Plugins"
+    description: "Plugin system"
+    category: "domain"
+    target_patterns:
+      - "plugin_*"
+
+  - name: "Applications"
+    description: "Executables"
+    category: "domain"
+    target_patterns:
+      - "app"
+      - "benchmark"
+
+  - name: "Tests"
+    description: "Test infrastructure"
+    category: "test"
+    target_patterns:
+      - "test_*"

@@ -126,6 +126,51 @@ class TestIntermediate:
             ds.load_intermediate("does_not_exist")
 
 
+class TestFindProjectFile:
+    def test_finds_file_in_ancestor(self, tmp_path):
+        """Config file at project root is found from nested data_dir."""
+        # Simulate: project_root/teams.yaml and data_dir = project_root/data/processed
+        project_root = tmp_path / "project"
+        data_dir = project_root / "data" / "processed"
+        data_dir.mkdir(parents=True)
+        config_file = project_root / "teams.yaml"
+        config_file.write_text("teams: []")
+
+        ds = BuildDataset(data_dir)
+        found = ds._find_project_file("teams.yaml")
+        assert found is not None
+        assert found == config_file
+
+    def test_finds_file_in_data_dir(self, tmp_path):
+        """Config file in data_dir itself is found."""
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        config_file = data_dir / "modules.yaml"
+        config_file.write_text("modules: []")
+
+        ds = BuildDataset(data_dir)
+        found = ds._find_project_file("modules.yaml")
+        assert found is not None
+        assert found == config_file
+
+    def test_returns_none_when_not_found(self, tmp_path):
+        ds = BuildDataset(tmp_path)
+        assert ds._find_project_file("nonexistent.yaml") is None
+
+    def test_finds_from_snapshot_depth(self, tmp_path):
+        """Config at project root found from data/snapshots/xxx/processed/."""
+        project_root = tmp_path / "project"
+        data_dir = project_root / "data" / "snapshots" / "baseline" / "processed"
+        data_dir.mkdir(parents=True)
+        config_file = project_root / "teams.yaml"
+        config_file.write_text("teams: []")
+
+        ds = BuildDataset(data_dir)
+        found = ds._find_project_file("teams.yaml")
+        assert found is not None
+        assert found == config_file
+
+
 @pytest.mark.skipif(not HAS_DATA, reason="Processed data not available")
 class TestNoValidation:
     def test_loads_without_validation(self):

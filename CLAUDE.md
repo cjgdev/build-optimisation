@@ -72,10 +72,9 @@ A → B means "A depends on B" (A builds after B). `rebuild_cost()` reverses the
 ### Data layout
 
 ```
+modules.yaml                             # Module boundary config
+teams.yaml                               # Team ownership config
 data/
-├── config/                          # Team and module configs
-│   ├── teams.yaml
-│   └── modules.yaml
 ├── raw/                             # Raw collection outputs (JSON, CSV)
 │   ├── cmake_file_api/              # targets.json, files.json, dependencies.json, etc.
 │   └── stderr_logs/                 # Per-file compiler stderr captures

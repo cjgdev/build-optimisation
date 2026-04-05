@@ -1,0 +1,9 @@
+teams:
+  - name: "Platform"
+    modules: ["Core", "Platform", "Math"]
+    members:
+      - name: "Alice"
+        emails:
+          - "alice@example.com"
+
+unaffiliated: []
