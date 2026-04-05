@@ -6,7 +6,7 @@ import networkx as nx
 import pandas as pd
 import pytest
 
-from buildanalysis.graphs import build_dependency_graph
+from buildanalysis.graph import build_dependency_graph
 from buildanalysis.types import BuildGraph
 
 
@@ -50,12 +50,14 @@ def _make_build_graph(edges: list[tuple[str, str]], target_types: dict[str, str]
     g = nx.DiGraph()
     g.add_edges_from(edges)
     targets = list(g.nodes())
-    meta = pd.DataFrame({
-        "cmake_target": targets,
-        "target_type": [target_types.get(t, "static_library") for t in targets],
-        "source_directory": [f"/src/{t.lower()}" for t in targets],
-        "directory_depth": [2] * len(targets),
-    }).set_index("cmake_target")
+    meta = pd.DataFrame(
+        {
+            "cmake_target": targets,
+            "target_type": [target_types.get(t, "static_library") for t in targets],
+            "source_directory": [f"/src/{t.lower()}" for t in targets],
+            "directory_depth": [2] * len(targets),
+        }
+    ).set_index("cmake_target")
     return BuildGraph(graph=g, target_metadata=meta)
 
 
@@ -67,21 +69,25 @@ def _make_build_graph(edges: list[tuple[str, str]], target_types: dict[str, str]
 @pytest.fixture
 def diamond_targets() -> pd.DataFrame:
     """Target metrics DataFrame for diamond graph."""
-    return pd.DataFrame({
-        "cmake_target": ["A", "B", "C", "D"],
-        "target_type": ["executable", "static_library", "static_library", "static_library"],
-    })
+    return pd.DataFrame(
+        {
+            "cmake_target": ["A", "B", "C", "D"],
+            "target_type": ["executable", "static_library", "static_library", "static_library"],
+        }
+    )
 
 
 @pytest.fixture
 def diamond_edges() -> pd.DataFrame:
     """Edge list DataFrame for diamond graph."""
-    return pd.DataFrame({
-        "source_target": ["A", "A", "B", "C"],
-        "dest_target": ["B", "C", "D", "D"],
-        "is_direct": [True, True, True, True],
-        "dependency_type": ["link", "link", "link", "link"],
-    })
+    return pd.DataFrame(
+        {
+            "source_target": ["A", "A", "B", "C"],
+            "dest_target": ["B", "C", "D", "D"],
+            "is_direct": [True, True, True, True],
+            "dependency_type": ["link", "link", "link", "link"],
+        }
+    )
 
 
 @pytest.fixture
@@ -91,10 +97,12 @@ def diamond_graph(diamond_targets, diamond_edges) -> BuildGraph:
 
 @pytest.fixture
 def diamond_timing() -> pd.DataFrame:
-    return pd.DataFrame({
-        "cmake_target": ["A", "B", "C", "D"],
-        "total_build_time_ms": [10_000, 30_000, 20_000, 5_000],
-    })
+    return pd.DataFrame(
+        {
+            "cmake_target": ["A", "B", "C", "D"],
+            "total_build_time_ms": [10_000, 30_000, 20_000, 5_000],
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -104,21 +112,25 @@ def diamond_timing() -> pd.DataFrame:
 
 @pytest.fixture
 def chain_targets() -> pd.DataFrame:
-    return pd.DataFrame({
-        "cmake_target": ["A", "B", "C", "D", "E"],
-        "target_type": ["executable", "static_library", "static_library", "static_library", "static_library"],
-    })
+    return pd.DataFrame(
+        {
+            "cmake_target": ["A", "B", "C", "D", "E"],
+            "target_type": ["executable", "static_library", "static_library", "static_library", "static_library"],
+        }
+    )
 
 
 @pytest.fixture
 def chain_edges() -> pd.DataFrame:
     """A → B → C → D → E."""
-    return pd.DataFrame({
-        "source_target": ["A", "B", "C", "D"],
-        "dest_target": ["B", "C", "D", "E"],
-        "is_direct": [True, True, True, True],
-        "dependency_type": ["link", "link", "link", "link"],
-    })
+    return pd.DataFrame(
+        {
+            "source_target": ["A", "B", "C", "D"],
+            "dest_target": ["B", "C", "D", "E"],
+            "is_direct": [True, True, True, True],
+            "dependency_type": ["link", "link", "link", "link"],
+        }
+    )
 
 
 @pytest.fixture
@@ -128,10 +140,12 @@ def chain_graph(chain_targets, chain_edges) -> BuildGraph:
 
 @pytest.fixture
 def chain_timing() -> pd.DataFrame:
-    return pd.DataFrame({
-        "cmake_target": list("ABCDE"),
-        "total_build_time_ms": [10_000] * 5,
-    })
+    return pd.DataFrame(
+        {
+            "cmake_target": list("ABCDE"),
+            "total_build_time_ms": [10_000] * 5,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -151,10 +165,12 @@ def wide_timing() -> pd.DataFrame:
     leaves = [f"leaf_{i}" for i in range(20)]
     targets = ["root"] + leaves
     times = [1_000] + [10_000] * 20
-    return pd.DataFrame({
-        "cmake_target": targets,
-        "total_build_time_ms": times,
-    })
+    return pd.DataFrame(
+        {
+            "cmake_target": targets,
+            "total_build_time_ms": times,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -166,9 +182,15 @@ def wide_timing() -> pd.DataFrame:
 def two_community_graph() -> BuildGraph:
     edges = [
         # Community 1 (diamond)
-        ("A1", "B1"), ("A1", "C1"), ("B1", "D1"), ("C1", "D1"),
+        ("A1", "B1"),
+        ("A1", "C1"),
+        ("B1", "D1"),
+        ("C1", "D1"),
         # Community 2 (diamond)
-        ("A2", "B2"), ("A2", "C2"), ("B2", "D2"), ("C2", "D2"),
+        ("A2", "B2"),
+        ("A2", "C2"),
+        ("B2", "D2"),
+        ("C2", "D2"),
         # Bridge
         ("A1", "D2"),
     ]
@@ -183,24 +205,36 @@ def two_community_graph() -> BuildGraph:
 @pytest.fixture
 def synthetic_git_log() -> pd.DataFrame:
     """Small git log for testing co-change analysis."""
-    return pd.DataFrame({
-        "commit_hash": ["c1", "c1", "c2", "c2", "c2", "c3", "c3", "c4"],
-        "timestamp": pd.to_datetime([
-            "2024-01-01", "2024-01-01",
-            "2024-01-02", "2024-01-02", "2024-01-02",
-            "2024-01-03", "2024-01-03",
-            "2024-01-04",
-        ]),
-        "contributor": ["alice", "alice", "bob", "bob", "bob", "alice", "alice", "carol"],
-        "source_file": [
-            "/src/a.cpp", "/src/b.cpp",
-            "/src/a.cpp", "/src/b.cpp", "/src/c.cpp",
-            "/src/a.cpp", "/src/b.cpp",
-            "/src/d.cpp",
-        ],
-        "lines_added": [10, 5, 20, 8, 3, 15, 7, 50],
-        "lines_deleted": [2, 1, 5, 2, 0, 3, 1, 10],
-    })
+    return pd.DataFrame(
+        {
+            "commit_hash": ["c1", "c1", "c2", "c2", "c2", "c3", "c3", "c4"],
+            "timestamp": pd.to_datetime(
+                [
+                    "2024-01-01",
+                    "2024-01-01",
+                    "2024-01-02",
+                    "2024-01-02",
+                    "2024-01-02",
+                    "2024-01-03",
+                    "2024-01-03",
+                    "2024-01-04",
+                ]
+            ),
+            "contributor": ["alice", "alice", "bob", "bob", "bob", "alice", "alice", "carol"],
+            "source_file": [
+                "/src/a.cpp",
+                "/src/b.cpp",
+                "/src/a.cpp",
+                "/src/b.cpp",
+                "/src/c.cpp",
+                "/src/a.cpp",
+                "/src/b.cpp",
+                "/src/d.cpp",
+            ],
+            "lines_added": [10, 5, 20, 8, 3, 15, 7, 50],
+            "lines_deleted": [2, 1, 5, 2, 0, 3, 1, 10],
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -211,25 +245,36 @@ def synthetic_git_log() -> pd.DataFrame:
 @pytest.fixture
 def synthetic_include_edges() -> pd.DataFrame:
     """Small include graph for testing header analysis."""
-    return pd.DataFrame({
-        "includer": [
-            "/src/main.cpp", "/src/main.cpp",
-            "/src/foo.h", "/src/foo.h",
-            "/src/bar.h",
-            "/src/utils.cpp", "/src/utils.cpp",
-        ],
-        "included": [
-            "/src/foo.h", "/src/bar.h",
-            "/src/types.h", "/src/utils.h",
-            "/src/types.h",
-            "/src/bar.h", "/src/types.h",
-        ],
-        "depth": [1, 1, 2, 2, 2, 1, 1],
-        "source_file": [
-            "/src/main.cpp", "/src/main.cpp",
-            "/src/main.cpp", "/src/main.cpp",
-            "/src/main.cpp",
-            "/src/utils.cpp", "/src/utils.cpp",
-        ],
-        "is_system": [False] * 7,
-    })
+    return pd.DataFrame(
+        {
+            "includer": [
+                "/src/main.cpp",
+                "/src/main.cpp",
+                "/src/foo.h",
+                "/src/foo.h",
+                "/src/bar.h",
+                "/src/utils.cpp",
+                "/src/utils.cpp",
+            ],
+            "included": [
+                "/src/foo.h",
+                "/src/bar.h",
+                "/src/types.h",
+                "/src/utils.h",
+                "/src/types.h",
+                "/src/bar.h",
+                "/src/types.h",
+            ],
+            "depth": [1, 1, 2, 2, 2, 1, 1],
+            "source_file": [
+                "/src/main.cpp",
+                "/src/main.cpp",
+                "/src/main.cpp",
+                "/src/main.cpp",
+                "/src/main.cpp",
+                "/src/utils.cpp",
+                "/src/utils.cpp",
+            ],
+            "is_system": [False] * 7,
+        }
+    )

@@ -23,8 +23,8 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from build_optimiser.config import Config
-from build_optimiser.metrics import HEADER_EDGES_SCHEMA, HEADER_METRICS_SCHEMA
+from buildanalysis.config import Config
+from buildanalysis.metrics import HEADER_EDGES_SCHEMA, HEADER_METRICS_SCHEMA
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -35,6 +35,8 @@ SYSTEM_PREFIXES = (
     "/usr/include",
     "/usr/local/include",
     "/usr/lib/",
+    "/usr/lib/gcc/",
+    "/usr/lib/x86_64-linux-gnu/",
     "/Applications/Xcode.app/",
     "/Library/Developer/",
 )
@@ -87,13 +89,15 @@ def extract_edges(source_file: str, tree: list[list]) -> list[dict]:
             pair = (includer, canon_path)
             if pair not in seen and includer != canon_path:
                 seen.add(pair)
-                edges.append({
-                    "includer": includer,
-                    "included": canon_path,
-                    "depth": depth,
-                    "source_file": canonicalise(source_file),
-                    "is_system": is_system_header(canon_path),
-                })
+                edges.append(
+                    {
+                        "includer": includer,
+                        "included": canon_path,
+                        "depth": depth,
+                        "source_file": canonicalise(source_file),
+                        "is_system": is_system_header(canon_path),
+                    }
+                )
 
         stack.append((depth, canon_path))
 
@@ -171,8 +175,7 @@ def build_target_lookup(target_metrics_path: Path) -> tuple[dict[str, str], list
     return file_to_target, target_dirs
 
 
-def resolve_target(header_path: str, file_to_target: dict[str, str],
-                   target_dirs: list[tuple[str, str]]) -> str | None:
+def resolve_target(header_path: str, file_to_target: dict[str, str], target_dirs: list[tuple[str, str]]) -> str | None:
     """Determine which cmake_target owns a header file."""
     # Direct lookup
     if header_path in file_to_target:
@@ -263,16 +266,20 @@ def main() -> None:
             sloc = counts["sloc"]
             size_bytes = counts["source_size_bytes"]
 
-        header_rows.append({
-            "header_file": header_path,
-            "cmake_target": target,
-            "sloc": sloc,
-            "source_size_bytes": size_bytes,
-            "is_system": system,
-        })
+        header_rows.append(
+            {
+                "header_file": header_path,
+                "cmake_target": target,
+                "sloc": sloc,
+                "source_size_bytes": size_bytes,
+                "is_system": system,
+            }
+        )
 
-    hm_df = pd.DataFrame(header_rows) if header_rows else pd.DataFrame(
-        columns=["header_file", "cmake_target", "sloc", "source_size_bytes", "is_system"]
+    hm_df = (
+        pd.DataFrame(header_rows)
+        if header_rows
+        else pd.DataFrame(columns=["header_file", "cmake_target", "sloc", "source_size_bytes", "is_system"])
     )
     hm_df["sloc"] = hm_df["sloc"].astype("int64")
     hm_df["source_size_bytes"] = hm_df["source_size_bytes"].astype("int64")
@@ -281,10 +288,13 @@ def main() -> None:
     hm_table = pa.Table.from_pandas(hm_df, schema=HEADER_METRICS_SCHEMA, preserve_index=False)
     hm_path = processed / "header_metrics.parquet"
     pq.write_table(hm_table, hm_path)
-    logger.info("Wrote %s (%d rows, %d system, %d project)",
-                hm_path, len(hm_df),
-                int(hm_df["is_system"].sum()),
-                int((~hm_df["is_system"]).sum()))
+    logger.info(
+        "Wrote %s (%d rows, %d system, %d project)",
+        hm_path,
+        len(hm_df),
+        int(hm_df["is_system"].sum()),
+        int((~hm_df["is_system"]).sum()),
+    )
 
 
 if __name__ == "__main__":

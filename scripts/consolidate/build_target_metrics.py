@@ -20,8 +20,8 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from build_optimiser.config import Config
-from build_optimiser.metrics import TARGET_METRICS_SCHEMA, aggregate_file_metrics_for_target
+from buildanalysis.config import Config
+from buildanalysis.metrics import TARGET_METRICS_SCHEMA, aggregate_file_metrics_for_target
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -98,18 +98,18 @@ def main() -> None:
     except Exception:
         centrality = {n: 0.0 for n in G}
 
-    # Compute topological depth per node
-    topo_depth = {}
-    for node in G:
-        try:
-            ancestors = nx.ancestors(G, node)
-            if ancestors:
-                paths = [nx.shortest_path_length(G, a, node) for a in ancestors if nx.has_path(G, a, node)]
-                topo_depth[node] = max(paths) if paths else 0
-            else:
-                topo_depth[node] = 0
-        except Exception:
-            topo_depth[node] = 0
+    # Compute topological depth per node via single-pass DP on topological order.
+    # A → B means "A depends on B", so successors are dependencies.
+    # Depth = longest path from any root (node with no predecessors) to the node.
+    topo_depth: dict[str, int] = {node: 0 for node in G}
+    try:
+        for node in nx.topological_sort(G):
+            for pred in G.predecessors(node):
+                if topo_depth[pred] + 1 > topo_depth[node]:
+                    topo_depth[node] = topo_depth[pred] + 1
+    except nx.NetworkXUnfeasible:
+        # Graph has a cycle — leave depths at 0
+        topo_depth = {node: 0 for node in G}
 
     # Aggregate per target
     rows = []
@@ -117,23 +117,50 @@ def main() -> None:
         target_files = file_df[file_df["cmake_target"] == target_name]
 
         if target_files.empty:
-            agg = {k: 0 for k in [
-                "file_count", "codegen_file_count", "authored_file_count",
-                "code_lines_total", "code_lines_authored", "code_lines_generated",
-                "compile_time_sum_ms", "compile_time_max_ms",
-            ]}
+            agg = {
+                k: 0
+                for k in [
+                    "file_count",
+                    "codegen_file_count",
+                    "authored_file_count",
+                    "code_lines_total",
+                    "code_lines_authored",
+                    "code_lines_generated",
+                    "compile_time_sum_ms",
+                    "compile_time_max_ms",
+                ]
+            }
             agg["codegen_ratio"] = 0.0
-            for k in ["compile_time_mean_ms", "compile_time_median_ms", "compile_time_std_ms",
-                       "compile_time_p90_ms", "compile_time_p99_ms"]:
+            for k in [
+                "compile_time_mean_ms",
+                "compile_time_median_ms",
+                "compile_time_std_ms",
+                "compile_time_p90_ms",
+                "compile_time_p99_ms",
+            ]:
                 agg[k] = 0.0
-            for k in ["authored_compile_time_sum_ms", "authored_compile_time_max_ms",
-                       "codegen_compile_time_sum_ms", "codegen_compile_time_max_ms"]:
+            for k in [
+                "authored_compile_time_sum_ms",
+                "authored_compile_time_max_ms",
+                "codegen_compile_time_sum_ms",
+                "codegen_compile_time_max_ms",
+            ]:
                 agg[k] = 0
-            for k in ["gcc_parse_time_sum_ms", "gcc_template_time_sum_ms",
-                       "gcc_codegen_phase_sum_ms", "gcc_optimization_time_sum_ms"]:
+            for k in [
+                "gcc_parse_time_sum_ms",
+                "gcc_template_time_sum_ms",
+                "gcc_codegen_phase_sum_ms",
+                "gcc_optimization_time_sum_ms",
+            ]:
                 agg[k] = 0.0
-            for k in ["header_depth_max", "unique_headers_total", "total_includes_sum",
-                       "preprocessed_bytes_total", "object_size_total_bytes", "object_file_count"]:
+            for k in [
+                "header_depth_max",
+                "unique_headers_total",
+                "total_includes_sum",
+                "preprocessed_bytes_total",
+                "object_size_total_bytes",
+                "object_file_count",
+            ]:
                 agg[k] = 0
             agg["header_depth_mean"] = 0.0
             agg["preprocessed_bytes_mean"] = 0.0
@@ -167,13 +194,12 @@ def main() -> None:
         agg["archive_time_ms"] = times.get("archive", 0)
         agg["link_time_ms"] = times.get("link", 0)
         agg["total_build_time_ms"] = (
-            agg.get("compile_time_sum_ms", 0) +
-            agg["codegen_time_ms"] + agg["archive_time_ms"] + agg["link_time_ms"]
+            agg.get("compile_time_sum_ms", 0) + agg["codegen_time_ms"] + agg["archive_time_ms"] + agg["link_time_ms"]
         )
 
         # Dependency graph metrics
         direct_deps = [n for n in G.successors(target_name) if G[target_name][n].get("is_direct")]
-        all_deps = list(G.successors(target_name))
+        all_deps = list(nx.descendants(G, target_name))
         direct_dependants = [n for n in G.predecessors(target_name) if G[n][target_name].get("is_direct")]
 
         agg["direct_dependency_count"] = len(direct_deps)
@@ -192,7 +218,8 @@ def main() -> None:
 
         # File lists as JSON
         source_files = target_files["source_file"].tolist() if not target_files.empty else []
-        generated = target_files[target_files["is_generated"] == True]["source_file"].tolist() if not target_files.empty else []  # noqa: E712
+        generated_mask = target_files["is_generated"] == True  # noqa: E712
+        generated = target_files[generated_mask]["source_file"].tolist() if not target_files.empty else []
         artifacts = [a.get("path", "") for a in meta.get("artifacts", [])]
         agg["source_files"] = json.dumps(source_files)
         agg["generated_files"] = json.dumps(generated)

@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from build_optimiser.config import Config
+from buildanalysis.config import Config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -47,13 +47,15 @@ def parse_ninja_log(log_path: Path) -> list[dict]:
             if len(parts) < 5:
                 continue
 
-            records.append({
-                "start_ms": int(parts[0]),
-                "end_ms": int(parts[1]),
-                "restat_mtime": parts[2],
-                "output_path": parts[3],
-                "command_hash": parts[4],
-            })
+            records.append(
+                {
+                    "start_ms": int(parts[0]),
+                    "end_ms": int(parts[1]),
+                    "restat_mtime": parts[2],
+                    "output_path": parts[3],
+                    "command_hash": parts[4],
+                }
+            )
 
     return records
 
@@ -86,7 +88,7 @@ def classify_step(
         for i, part in enumerate(parts):
             if part == "CMakeFiles" and i + 1 < len(parts) and parts[i + 1].endswith(".dir"):
                 target_name = parts[i + 1][:-4]
-                source_suffix = "/".join(parts[i + 2:])
+                source_suffix = "/".join(parts[i + 2 :])
                 break
 
         if source_suffix and source_suffix.endswith(".o"):
@@ -193,16 +195,18 @@ def main() -> None:
             record["output_path"], file_index, target_artifacts, codegen_outputs, build_dir
         )
 
-        output_records.append({
-            "output_path": record["output_path"],
-            "source_file": source_file or "",
-            "cmake_target": cmake_target or "",
-            "step_type": step_type,
-            "start_ms": record["start_ms"],
-            "end_ms": record["end_ms"],
-            "duration_ms": record["end_ms"] - record["start_ms"],
-            "command_hash": record["command_hash"],
-        })
+        output_records.append(
+            {
+                "output_path": record["output_path"],
+                "source_file": source_file or "",
+                "cmake_target": cmake_target or "",
+                "step_type": step_type,
+                "start_ms": record["start_ms"],
+                "end_ms": record["end_ms"],
+                "duration_ms": record["end_ms"] - record["start_ms"],
+                "command_hash": record["command_hash"],
+            }
+        )
 
     # Write output
     cfg.raw_data_dir.mkdir(parents=True, exist_ok=True)
@@ -210,8 +214,16 @@ def main() -> None:
     with open(output_path, "w", newline="") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["output_path", "source_file", "cmake_target", "step_type",
-                        "start_ms", "end_ms", "duration_ms", "command_hash"],
+            fieldnames=[
+                "output_path",
+                "source_file",
+                "cmake_target",
+                "step_type",
+                "start_ms",
+                "end_ms",
+                "duration_ms",
+                "command_hash",
+            ],
         )
         writer.writeheader()
         writer.writerows(output_records)

@@ -58,10 +58,12 @@ def detect_communities_spectral(bg: BuildGraph, n_clusters: int | None = None) -
     # Use adjacency matrix as precomputed affinity
     labels = clustering.fit_predict(adj_matrix)
 
-    return pd.DataFrame({
-        "cmake_target": nodes,
-        "community": labels,
-    })
+    return pd.DataFrame(
+        {
+            "cmake_target": nodes,
+            "community": labels,
+        }
+    )
 
 
 def hierarchical_clustering(bg: BuildGraph, method: str = "ward") -> tuple[np.ndarray, list[str]]:
@@ -99,10 +101,12 @@ def cut_dendrogram(Z: np.ndarray, nodes: list[str], n_clusters: int) -> pd.DataF
     # Convert to 0-indexed
     labels = labels - 1
 
-    return pd.DataFrame({
-        "cmake_target": nodes,
-        "community": labels,
-    })
+    return pd.DataFrame(
+        {
+            "cmake_target": nodes,
+            "community": labels,
+        }
+    )
 
 
 def compute_modularity_score(bg: BuildGraph, communities: pd.DataFrame) -> dict:
@@ -164,7 +168,8 @@ def build_feature_configurations(
     total_targets = bg.n_targets
 
     # Build timing lookup
-    timing_map = {}
+    timing_map: dict[str, float] = {}
+    total_build_time: float = 0.0
     if timing is not None:
         timing_map = timing.set_index("cmake_target")[time_col].to_dict()
         total_build_time = sum(timing_map.values())
@@ -225,15 +230,17 @@ def compare_community_methods(bg: BuildGraph, methods_results: dict[str, pd.Data
     for method_name, communities in methods_results.items():
         score = compute_modularity_score(bg, communities)
         sizes = communities.groupby("community").size()
-        rows.append({
-            "method": method_name,
-            "n_communities": score["n_communities"],
-            "modularity": score["graph_modularity"],
-            "inter_community_edges": score["inter_community_edge_fraction"],
-            "avg_self_containment": score["avg_self_containment"],
-            "min_size": int(sizes.min()),
-            "max_size": int(sizes.max()),
-        })
+        rows.append(
+            {
+                "method": method_name,
+                "n_communities": score["n_communities"],
+                "modularity": score["graph_modularity"],
+                "inter_community_edges": score["inter_community_edge_fraction"],
+                "avg_self_containment": score["avg_self_containment"],
+                "min_size": int(sizes.min()),
+                "max_size": int(sizes.max()),
+            }
+        )
 
     result = pd.DataFrame(rows)
     return result.sort_values("modularity", ascending=False).reset_index(drop=True)

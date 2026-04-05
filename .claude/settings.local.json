@@ -1,22 +1,29 @@
 {
   "permissions": {
     "allow": [
-      "Read(//Users/cgilbert/Work/projects/build-optimisation/**)",
-      "Read(//tmp/**)",
-      "Read(//private/tmp/**)",
       "Bash(uv *)",
+      "Bash(python *)",
       "Bash(python3 *)",
-      "Bash(python3 -c *)",
       "Bash(cmake *)",
       "Bash(ninja *)",
       "Bash(gcc *)",
       "Bash(g++ *)",
-      "Bash(chmod +x *)",
+      "Bash(git *)",
       "Bash(ls *)",
       "Bash(cat *)",
       "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(mkdir *)",
+      "Bash(rm *)",
+      "Bash(chmod *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(grep *)",
       "Bash(xargs *)",
-      "Bash(git *)"
+      "Bash(diff *)",
+      "Bash(.venv/bin/python3 *)",
+      "Bash(./scripts/*)"
     ]
   }
 }

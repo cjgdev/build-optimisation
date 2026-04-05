@@ -19,8 +19,8 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from build_optimiser.config import Config
-from build_optimiser.metrics import FILE_METRICS_SCHEMA
+from buildanalysis.config import Config
+from buildanalysis.metrics import FILE_METRICS_SCHEMA
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -81,33 +81,44 @@ def main() -> None:
     ftime_rows = []
     for source_file, data in ftime_data.items():
         phases = data.get("phases", {})
-        ftime_rows.append({
-            "source_file": source_file,
-            "gcc_parse_time_ms": phases.get("phase parsing", 0) * 1000,
-            "gcc_template_instantiation_ms": phases.get("phase lang. deferred", 0) * 1000,
-            "gcc_codegen_time_ms": phases.get("phase opt and generate", 0) * 1000,
-            "gcc_optimization_time_ms": phases.get("phase opt and generate", 0) * 1000,
-            "gcc_total_time_ms": data.get("wall_total_ms", 0),
-        })
+        ftime_rows.append(
+            {
+                "source_file": source_file,
+                "gcc_parse_time_ms": phases.get("phase parsing", 0) * 1000,
+                "gcc_template_instantiation_ms": phases.get("phase lang. deferred", 0) * 1000,
+                # GCC's -ftime-report reports optimization and code generation as a single
+                # "phase opt and generate" phase; both columns are sourced from the same value.
+                "gcc_codegen_time_ms": phases.get("phase opt and generate", 0) * 1000,
+                "gcc_optimization_time_ms": phases.get("phase opt and generate", 0) * 1000,
+                "gcc_total_time_ms": data.get("wall_total_ms", 0),
+            }
+        )
     if ftime_rows:
         ftime_df = pd.DataFrame(ftime_rows)
         spine = spine.merge(ftime_df, on="source_file", how="left")
     else:
-        for col in ["gcc_parse_time_ms", "gcc_template_instantiation_ms",
-                     "gcc_codegen_time_ms", "gcc_optimization_time_ms", "gcc_total_time_ms"]:
+        for col in [
+            "gcc_parse_time_ms",
+            "gcc_template_instantiation_ms",
+            "gcc_codegen_time_ms",
+            "gcc_optimization_time_ms",
+            "gcc_total_time_ms",
+        ]:
             spine[col] = pd.NA
 
     # Header data
     header_data = load_json(raw / "header_data.json")
     header_rows = []
     for source_file, data in header_data.items():
-        header_rows.append({
-            "source_file": source_file,
-            "header_max_depth": data.get("max_include_depth", 0),
-            "unique_headers": data.get("unique_headers", 0),
-            "total_includes": data.get("total_includes", 0),
-            "header_tree": json.dumps(data.get("header_tree", [])),
-        })
+        header_rows.append(
+            {
+                "source_file": source_file,
+                "header_max_depth": data.get("max_include_depth", 0),
+                "unique_headers": data.get("unique_headers", 0),
+                "total_includes": data.get("total_includes", 0),
+                "header_tree": json.dumps(data.get("header_tree", [])),
+            }
+        )
     if header_rows:
         header_df = pd.DataFrame(header_rows)
         spine = spine.merge(header_df, on="source_file", how="left")
@@ -148,30 +159,46 @@ def main() -> None:
     # Git history summary
     git_df = load_csv(raw / "git_history_summary.csv")
     if not git_df.empty:
-        git_cols = git_df.rename(columns={
-            "commit_count": "git_commit_count",
-            "total_lines_added": "git_lines_added",
-            "total_lines_deleted": "git_lines_deleted",
-            "total_churn": "git_churn",
-            "distinct_authors": "git_distinct_authors",
-            "first_change_date": "git_first_change_date",
-            "last_change_date": "git_last_change_date",
-        })
-        git_cols = git_cols[["source_file", "git_commit_count", "git_lines_added",
-                             "git_lines_deleted", "git_churn", "git_distinct_authors",
-                             "git_first_change_date", "git_last_change_date"]].copy()
+        git_cols = git_df.rename(
+            columns={
+                "commit_count": "git_commit_count",
+                "total_lines_added": "git_lines_added",
+                "total_lines_deleted": "git_lines_deleted",
+                "total_churn": "git_churn",
+                "distinct_authors": "git_distinct_authors",
+                "first_change_date": "git_first_change_date",
+                "last_change_date": "git_last_change_date",
+            }
+        )
+        git_cols = git_cols[
+            [
+                "source_file",
+                "git_commit_count",
+                "git_lines_added",
+                "git_lines_deleted",
+                "git_churn",
+                "git_distinct_authors",
+                "git_first_change_date",
+                "git_last_change_date",
+            ]
+        ].copy()
         git_cols = git_cols.drop_duplicates(subset="source_file", keep="last")
         spine = spine.merge(git_cols, on="source_file", how="left")
     else:
-        for col in ["git_commit_count", "git_lines_added", "git_lines_deleted",
-                     "git_churn", "git_distinct_authors", "git_first_change_date",
-                     "git_last_change_date"]:
+        for col in [
+            "git_commit_count",
+            "git_lines_added",
+            "git_lines_deleted",
+            "git_churn",
+            "git_distinct_authors",
+            "git_first_change_date",
+            "git_last_change_date",
+        ]:
             spine[col] = pd.NA
 
     # Fill NA for generated files' git fields with 0
     gen_mask = spine["is_generated"] == True  # noqa: E712
-    for col in ["git_commit_count", "git_lines_added", "git_lines_deleted",
-                "git_churn", "git_distinct_authors"]:
+    for col in ["git_commit_count", "git_lines_added", "git_lines_deleted", "git_churn", "git_distinct_authors"]:
         if col in spine.columns:
             spine.loc[gen_mask, col] = spine.loc[gen_mask, col].fillna(0)
 

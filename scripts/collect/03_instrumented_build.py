@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from build_optimiser.config import Config
+from buildanalysis.config import Config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ FTIME_RE = re.compile(
     r"(\d+\.\d+)\s+\(\s*\d+%\)\s+"  # usr
     r"(\d+\.\d+)\s+\(\s*\d+%\)\s+"  # sys
     r"(\d+\.\d+)\s+\(\s*\d+%\)\s+"  # wall
-    r"(\d+)\s+kB"                     # GGC memory
+    r"(\d+)\s+kB"  # GGC memory
 )
 FTIME_TOTAL_RE = re.compile(
     r"^\s*TOTAL\s*:\s+"

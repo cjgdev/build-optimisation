@@ -32,7 +32,7 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from build_optimiser.config import Config
+from buildanalysis.config import Config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -74,12 +74,14 @@ def parse_git_log(output: str, git_toplevel: str) -> list[dict]:
             # Canonicalise path relative to git toplevel
             canonical = os.path.realpath(os.path.join(git_toplevel, filepath))
 
-            records.append({
-                **current_commit,
-                "lines_added": int(added),
-                "lines_deleted": int(deleted),
-                "source_file": canonical,
-            })
+            records.append(
+                {
+                    **current_commit,
+                    "lines_added": int(added),
+                    "lines_deleted": int(deleted),
+                    "source_file": canonical,
+                }
+            )
 
     return records
 
@@ -99,7 +101,9 @@ def filter_mega_commits(records: list[dict]) -> list[dict]:
             mega_hashes.add(commit_hash)
             logger.warning(
                 "Skipping mega-commit %s (%d files > %d threshold)",
-                commit_hash[:12], len(files), MAX_FILES_PER_COMMIT,
+                commit_hash[:12],
+                len(files),
+                MAX_FILES_PER_COMMIT,
             )
 
     if mega_hashes:
@@ -111,30 +115,35 @@ def filter_mega_commits(records: list[dict]) -> list[dict]:
 
 def write_commit_log_parquet(records: list[dict], output_path: Path) -> None:
     """Write the raw commit-level records to a parquet file."""
-    schema = pa.schema([
-        ("commit_hash", pa.string()),
-        ("timestamp", pa.timestamp("us", tz="UTC")),
-        ("contributor", pa.string()),
-        ("source_file", pa.string()),
-        ("lines_added", pa.int64()),
-        ("lines_deleted", pa.int64()),
-    ])
+    schema = pa.schema(
+        [
+            ("commit_hash", pa.string()),
+            ("timestamp", pa.timestamp("us", tz="UTC")),
+            ("contributor", pa.string()),
+            ("source_file", pa.string()),
+            ("lines_added", pa.int64()),
+            ("lines_deleted", pa.int64()),
+        ]
+    )
 
     rows = []
     for r in records:
         # Parse ISO 8601 timestamp to UTC datetime
         ts = datetime.fromisoformat(r["commit_date"]).astimezone(timezone.utc)
-        rows.append({
-            "commit_hash": r["commit_hash"],
-            "timestamp": ts,
-            "contributor": r["author_email"],
-            "source_file": r["source_file"],
-            "lines_added": r["lines_added"],
-            "lines_deleted": r["lines_deleted"],
-        })
+        rows.append(
+            {
+                "commit_hash": r["commit_hash"],
+                "timestamp": ts,
+                "contributor": r["author_email"],
+                "source_file": r["source_file"],
+                "lines_added": r["lines_added"],
+                "lines_deleted": r["lines_deleted"],
+            }
+        )
 
     if rows:
         import pandas as pd
+
         df = pd.DataFrame(rows)
         df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
         table = pa.Table.from_pandas(df, schema=schema, preserve_index=False)
@@ -156,16 +165,18 @@ def summarise(records: list[dict]) -> list[dict]:
     for source_file, commits in by_file.items():
         authors = set(c["author"] for c in commits)
         dates = [c["commit_date"] for c in commits]
-        summaries.append({
-            "source_file": source_file,
-            "commit_count": len(commits),
-            "total_lines_added": sum(c["lines_added"] for c in commits),
-            "total_lines_deleted": sum(c["lines_deleted"] for c in commits),
-            "total_churn": sum(c["lines_added"] + c["lines_deleted"] for c in commits),
-            "distinct_authors": len(authors),
-            "first_change_date": min(dates),
-            "last_change_date": max(dates),
-        })
+        summaries.append(
+            {
+                "source_file": source_file,
+                "commit_count": len(commits),
+                "total_lines_added": sum(c["lines_added"] for c in commits),
+                "total_lines_deleted": sum(c["lines_deleted"] for c in commits),
+                "total_churn": sum(c["lines_added"] + c["lines_deleted"] for c in commits),
+                "distinct_authors": len(authors),
+                "first_change_date": min(dates),
+                "last_change_date": max(dates),
+            }
+        )
 
     return summaries
 
@@ -199,13 +210,15 @@ def summarise_contributors(records: list[dict]) -> list[dict]:
             unique_hashes.add(c["commit_hash"])
             files.add(c["source_file"])
             dates.append(c["commit_date"])
-        summaries.append({
-            "contributor": contributor,
-            "total_commits": len(unique_hashes),
-            "first_commit_date": min(dates),
-            "last_commit_date": max(dates),
-            "files_touched": len(files),
-        })
+        summaries.append(
+            {
+                "contributor": contributor,
+                "total_commits": len(unique_hashes),
+                "first_commit_date": min(dates),
+                "last_commit_date": max(dates),
+                "files_touched": len(files),
+            }
+        )
 
     return summaries
 
@@ -222,7 +235,9 @@ def main() -> None:
     # (source_dir may be a subdirectory within the git repo)
     git_toplevel_result = subprocess.run(
         ["git", "-C", source_dir, "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     git_toplevel = git_toplevel_result.stdout.strip()
 
@@ -240,14 +255,21 @@ def main() -> None:
     # Run git log from repo root, scoped to the source directory
     since = f"{cfg.git_history_months} months ago"
     cmd = [
-        "git", "-C", git_toplevel, "log",
+        "git",
+        "-C",
+        git_toplevel,
+        "log",
         f"--since={since}",
         "--no-merges",
         "--numstat",
         "--pretty=format:COMMIT:%H|%aI|%an|%ae|%s",
-        "--", f"{source_dir}/**/*.cpp", f"{source_dir}/**/*.cc",
-        f"{source_dir}/**/*.cxx", f"{source_dir}/**/*.h",
-        f"{source_dir}/**/*.hpp", f"{source_dir}/**/*.hxx",
+        "--",
+        f"{source_dir}/**/*.cpp",
+        f"{source_dir}/**/*.cc",
+        f"{source_dir}/**/*.cxx",
+        f"{source_dir}/**/*.h",
+        f"{source_dir}/**/*.hpp",
+        f"{source_dir}/**/*.hxx",
     ]
 
     logger.info("Running git log (since %s)...", since)
@@ -276,8 +298,14 @@ def main() -> None:
     cfg.raw_data_dir.mkdir(parents=True, exist_ok=True)
     detail_path = cfg.raw_data_dir / "git_history_detail.csv"
     detail_fields = [
-        "source_file", "commit_hash", "commit_date", "author", "author_email",
-        "message", "lines_added", "lines_deleted",
+        "source_file",
+        "commit_hash",
+        "commit_date",
+        "author",
+        "author_email",
+        "message",
+        "lines_added",
+        "lines_deleted",
     ]
     with open(detail_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=detail_fields, extrasaction="ignore")
@@ -289,8 +317,14 @@ def main() -> None:
     summaries = summarise(records)
     summary_path = cfg.raw_data_dir / "git_history_summary.csv"
     summary_fields = [
-        "source_file", "commit_count", "total_lines_added", "total_lines_deleted",
-        "total_churn", "distinct_authors", "first_change_date", "last_change_date",
+        "source_file",
+        "commit_count",
+        "total_lines_added",
+        "total_lines_deleted",
+        "total_churn",
+        "distinct_authors",
+        "first_change_date",
+        "last_change_date",
     ]
     with open(summary_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=summary_fields)

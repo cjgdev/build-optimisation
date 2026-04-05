@@ -284,9 +284,7 @@ class BuildDataset:
         if not path.exists():
             provenance = _PROVENANCE.get(name, "the data collection pipeline")
             raise FileNotFoundError(
-                f"{path} not found. "
-                f"This file is produced by {provenance}. "
-                f"Run the data collection pipeline first."
+                f"{path} not found. This file is produced by {provenance}. Run the data collection pipeline first."
             )
 
         df = pd.read_parquet(path)
@@ -299,15 +297,16 @@ class BuildDataset:
 
     def _load_intermediate(self, name: str) -> pd.DataFrame:
         """Load from the intermediate directory (no schema validation)."""
-        if name in self._cache:
-            return self._cache[name]
+        cache_key = f"intermediate:{name}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
 
         path = self._intermediate_dir / f"{name}.parquet"
         if not path.exists():
             raise FileNotFoundError(f"{path} not found. Run the notebook that produces this file first.")
 
         df = pd.read_parquet(path)
-        self._cache[name] = df
+        self._cache[cache_key] = df
         return df
 
     # -- Core dataset properties --------------------------------------------
@@ -369,7 +368,7 @@ class BuildDataset:
         path = self._intermediate_dir / f"{name}.parquet"
         df.to_parquet(path, index=False)
         # Update cache so subsequent access returns the same data
-        self._cache[name] = df
+        self._cache[f"intermediate:{name}"] = df
         return path
 
     def load_intermediate(self, name: str) -> pd.DataFrame:
@@ -379,3 +378,76 @@ class BuildDataset:
     def has_file(self, name: str) -> bool:
         """Check whether a parquet file exists without loading it."""
         return (self._data_dir / f"{name}.parquet").exists()
+
+    # -- Snapshot-aware class methods ------------------------------------------
+
+    @classmethod
+    def from_snapshot(cls, snapshot_dir: Path, **kwargs) -> "BuildDataset":
+        """Load from a snapshot directory (uses snapshot_dir/processed/)."""
+        snapshot_dir = Path(snapshot_dir)
+        processed = snapshot_dir / "processed"
+        if not processed.exists():
+            raise FileNotFoundError(f"No processed directory in snapshot at {processed}")
+        return cls(processed, validate=kwargs.pop("validate", True), **kwargs)
+
+    @classmethod
+    def from_latest(cls, snapshots_dir: Path, **kwargs) -> "BuildDataset":
+        """Load from the most recent snapshot (via 'latest' symlink or by date)."""
+        from buildanalysis.snapshots import SnapshotManager
+
+        sm = SnapshotManager(snapshots_dir)
+        latest = sm.get_latest()
+        if latest is None:
+            raise FileNotFoundError(f"No snapshots found in {snapshots_dir}")
+        return cls.from_snapshot(latest, **kwargs)
+
+    @classmethod
+    def from_baseline(cls, snapshots_dir: Path, **kwargs) -> "BuildDataset":
+        """Load from the baseline snapshot."""
+        from buildanalysis.snapshots import SnapshotManager
+
+        sm = SnapshotManager(snapshots_dir)
+        baseline = sm.get_baseline()
+        if baseline is None:
+            raise FileNotFoundError(f"No baseline snapshot found in {snapshots_dir}")
+        return cls.from_snapshot(baseline, **kwargs)
+
+    # -- Optional config properties -----------------------------------------
+
+    @property
+    def team_config(self):
+        """Lazily load team config from config/teams.yaml relative to project root.
+
+        Returns None if the file does not exist.
+        """
+        if not hasattr(self, "_team_config"):
+            # Walk up from data_dir to find project root (where config/ lives)
+            config_path = self._data_dir.parent / "config" / "teams.yaml"
+            if not config_path.exists():
+                # Try relative to data_dir's grandparent
+                config_path = self._data_dir.parent.parent / "config" / "teams.yaml"
+            if config_path.exists():
+                from buildanalysis.teams import TeamConfig
+
+                self._team_config = TeamConfig.from_yaml(config_path)
+            else:
+                self._team_config = None
+        return self._team_config
+
+    @property
+    def module_config(self):
+        """Lazily load module config from config/modules.yaml relative to project root.
+
+        Returns None if the file does not exist.
+        """
+        if not hasattr(self, "_module_config"):
+            config_path = self._data_dir.parent / "config" / "modules.yaml"
+            if not config_path.exists():
+                config_path = self._data_dir.parent.parent / "config" / "modules.yaml"
+            if config_path.exists():
+                from buildanalysis.modules import ModuleConfig
+
+                self._module_config = ModuleConfig.from_yaml(config_path)
+            else:
+                self._module_config = None
+        return self._module_config

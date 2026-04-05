@@ -22,7 +22,7 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from build_optimiser.config import Config
+from buildanalysis.config import Config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -68,20 +68,19 @@ def main() -> None:
     contrib_file_df = contrib_file_df.dropna(subset=["cmake_target"])
 
     # Aggregate: per-contributor-per-target commit counts
-    target_commits = (
-        contrib_file_df.groupby(["contributor", "cmake_target"], as_index=False)["commit_count"]
-        .sum()
-    )
+    target_commits = contrib_file_df.groupby(["contributor", "cmake_target"], as_index=False)["commit_count"].sum()
     logger.info("Aggregated to %d contributor-target pairs", len(target_commits))
 
     # Write output
     cfg.processed_data_dir.mkdir(parents=True, exist_ok=True)
     output_path = cfg.processed_data_dir / "contributor_target_commits.parquet"
-    schema = pa.schema([
-        ("contributor", pa.string()),
-        ("cmake_target", pa.string()),
-        ("commit_count", pa.int64()),
-    ])
+    schema = pa.schema(
+        [
+            ("contributor", pa.string()),
+            ("cmake_target", pa.string()),
+            ("commit_count", pa.int64()),
+        ]
+    )
     table = pa.Table.from_pandas(target_commits, schema=schema, preserve_index=False)
     pq.write_table(table, output_path)
     logger.info("Wrote %s (%d rows)", output_path, len(target_commits))

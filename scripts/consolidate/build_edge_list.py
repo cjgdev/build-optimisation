@@ -19,8 +19,8 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from build_optimiser.config import Config
-from build_optimiser.metrics import EDGE_LIST_SCHEMA
+from buildanalysis.config import Config
+from buildanalysis.metrics import EDGE_LIST_SCHEMA
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -50,16 +50,18 @@ def main() -> None:
         src = edge["source_target"]
         dst = edge["dest_target"]
         is_direct = edge.get("is_direct", False)
-        rows.append({
-            "source_target": src,
-            "dest_target": dst,
-            "is_direct": is_direct,
-            "dependency_type": edge.get("dependency_type", "transitive"),
-            "source_target_type": target_types.get(src, ""),
-            "dest_target_type": target_types.get(dst, ""),
-            "from_dependency": edge.get("from_dependency"),
-            "cmake_visibility": "TRANSITIVE" if not is_direct else edge.get("cmake_visibility", "UNKNOWN"),
-        })
+        rows.append(
+            {
+                "source_target": src,
+                "dest_target": dst,
+                "is_direct": is_direct,
+                "dependency_type": edge.get("dependency_type", "transitive"),
+                "source_target_type": target_types.get(src, ""),
+                "dest_target_type": target_types.get(dst, ""),
+                "from_dependency": edge.get("from_dependency"),
+                "cmake_visibility": "TRANSITIVE" if not is_direct else edge.get("cmake_visibility", "UNKNOWN"),
+            }
+        )
 
     df = pd.DataFrame(rows)
     logger.info("Edge list: %d edges", len(df))

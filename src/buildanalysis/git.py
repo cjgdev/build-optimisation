@@ -86,13 +86,15 @@ def compute_cochange_matrix(
             p_b = count_b / total_commits
             pmi = math.log2(p_ab / (p_a * p_b)) if p_a > 0 and p_b > 0 and p_ab > 0 else 0.0
             jaccard = count / (count_a + count_b - count)
-            rows.append({
-                "item_a": a,
-                "item_b": b,
-                "cochange_count": count,
-                "pmi": pmi,
-                "jaccard": jaccard,
-            })
+            rows.append(
+                {
+                    "item_a": a,
+                    "item_b": b,
+                    "cochange_count": count,
+                    "pmi": pmi,
+                    "jaccard": jaccard,
+                }
+            )
 
     if not rows:
         return pd.DataFrame(columns=["item_a", "item_b", "cochange_count", "pmi", "jaccard"])
@@ -123,11 +125,7 @@ def compute_ownership_concentration(
     df[entity_col] = df["source_file"].map(file_to_target)
 
     # Count commits per contributor per target
-    commit_counts = (
-        df.groupby([entity_col, "contributor"])["commit_hash"]
-        .nunique()
-        .reset_index(name="commits")
-    )
+    commit_counts = df.groupby([entity_col, "contributor"])["commit_hash"].nunique().reset_index(name="commits")
 
     rows = []
     for target, group in commit_counts.groupby(entity_col):
@@ -137,17 +135,28 @@ def compute_ownership_concentration(
         top_contributor = group.iloc[top_idx]["contributor"]
         top_share = float(counts[top_idx]) / total
 
-        rows.append({
-            entity_col: target,
-            "n_contributors": len(group),
-            "gini": _gini(counts),
-            "top_contributor": top_contributor,
-            "top_contributor_share": top_share,
-            "total_commits": total,
-        })
+        rows.append(
+            {
+                entity_col: target,
+                "n_contributors": len(group),
+                "gini": _gini(counts),
+                "top_contributor": top_contributor,
+                "top_contributor_share": top_share,
+                "total_commits": total,
+            }
+        )
 
     if not rows:
-        return pd.DataFrame(columns=[entity_col, "n_contributors", "gini", "top_contributor", "top_contributor_share", "total_commits"])
+        return pd.DataFrame(
+            columns=[
+                entity_col,
+                "n_contributors",
+                "gini",
+                "top_contributor",
+                "top_contributor_share",
+                "total_commits",
+            ]
+        )
 
     return pd.DataFrame(rows).sort_values("gini", ascending=False).reset_index(drop=True)
 
@@ -164,11 +173,7 @@ def infer_team_assignments(
     df = git_log[git_log["source_file"].isin(file_to_target.index)].copy()
     df["cmake_target"] = df["source_file"].map(file_to_target)
 
-    commit_counts = (
-        df.groupby(["cmake_target", "contributor"])["commit_hash"]
-        .nunique()
-        .reset_index(name="commits")
-    )
+    commit_counts = df.groupby(["cmake_target", "contributor"])["commit_hash"].nunique().reset_index(name="commits")
 
     rows = []
     for target, group in commit_counts.groupby("cmake_target"):
@@ -179,16 +184,26 @@ def infer_team_assignments(
         top_contributor = group.iloc[top_idx]["contributor"]
         top_share = float(group.iloc[top_idx]["commits"]) / total
 
-        rows.append({
-            "cmake_target": target,
-            "primary_team": top_contributor,
-            "top_contributor_share": top_share,
-            "n_contributors": len(group),
-            "total_commits": total,
-        })
+        rows.append(
+            {
+                "cmake_target": target,
+                "primary_team": top_contributor,
+                "top_contributor_share": top_share,
+                "n_contributors": len(group),
+                "total_commits": total,
+            }
+        )
 
     if not rows:
-        return pd.DataFrame(columns=["cmake_target", "primary_team", "top_contributor_share", "n_contributors", "total_commits"])
+        return pd.DataFrame(
+            columns=[
+                "cmake_target",
+                "primary_team",
+                "top_contributor_share",
+                "n_contributors",
+                "total_commits",
+            ]
+        )
 
     return pd.DataFrame(rows)
 

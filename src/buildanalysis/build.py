@@ -1,4 +1,12 @@
-"""Critical path analysis, build simulation, and what-if modelling."""
+"""Critical path analysis, build simulation, and what-if modelling.
+
+The simulate_build scheduler faithfully models Ninja v1.12's scheduling:
+- Depth-based critical path weights (non-phony node count, not duration)
+- Max-heap priority queue keyed on critical_path_weight
+- Per-pool concurrency limits with delayed priority sets
+- Global -j cap as hard upper bound on parallelism
+- Flat graph with no target grouping — compilation freely interleaves
+"""
 
 from __future__ import annotations
 
@@ -9,6 +17,34 @@ import networkx as nx
 import pandas as pd
 
 from buildanalysis.types import AnalysisScope, BuildGraph
+
+_PHONY_TARGET_TYPES: frozenset[str] = frozenset({"interface_library", "custom_target"})
+
+_LINK_TARGET_TYPES: frozenset[str] = frozenset({"executable", "shared_library", "module_library"})
+
+
+@dataclass(frozen=True, slots=True)
+class PoolConfig:
+    """Per-pool concurrency limits for the Ninja-faithful scheduler.
+
+    Depth 0 means unlimited. The default pool is always unlimited.
+    """
+
+    pools: dict[str, int]
+
+    @classmethod
+    def default(cls) -> PoolConfig:
+        return cls(pools={})
+
+    @classmethod
+    def with_link_pool(cls, link_depth: int = 4) -> PoolConfig:
+        return cls(pools={"link_pool": link_depth})
+
+    def depth(self, pool_name: str) -> int:
+        return self.pools.get(pool_name, 0)
+
+    def is_unlimited(self, pool_name: str) -> bool:
+        return self.depth(pool_name) == 0
 
 
 @dataclass
@@ -26,6 +62,50 @@ def _get_durations(bg: BuildGraph, timing: pd.DataFrame, time_col: str) -> dict[
     return {node: timing_map.get(node, 0.0) for node in bg.graph.nodes()}
 
 
+def _compute_cp_weights(bg: BuildGraph) -> dict[str, int]:
+    """Compute Ninja v1.12+ depth-based critical path weights.
+
+    Each node's weight = count of non-phony nodes on the longest chain from
+    that node to any leaf (node with no dependencies), inclusive of the node
+    itself if non-phony.
+
+    Computed via DP in reverse topological order (leaves processed first).
+    """
+    g = bg.graph
+    phony: set[str] = set()
+    if "target_type" in bg.target_metadata.columns:
+        for n in g.nodes():
+            if n in bg.target_metadata.index:
+                t_type = bg.target_metadata.loc[n, "target_type"]
+                if t_type in _PHONY_TARGET_TYPES:
+                    phony.add(n)
+
+    weights: dict[str, int] = {}
+    for node in reversed(list(nx.topological_sort(g))):
+        own = 0 if node in phony else 1
+        dep_max = max((weights[dep] for dep in g.successors(node)), default=0)
+        weights[node] = own + dep_max
+    return weights
+
+
+def _pool_assignments(bg: BuildGraph, pool_config: PoolConfig, pool_col: str) -> dict[str, str]:
+    """Return mapping from target name to pool name."""
+    if pool_col in bg.target_metadata.columns:
+        raw = bg.target_metadata[pool_col].where(bg.target_metadata[pool_col].notna(), other="default")
+        return raw.to_dict()
+
+    result: dict[str, str] = {}
+    has_link_pool = not pool_config.is_unlimited("link_pool")
+    for node in bg.graph.nodes():
+        pool = "default"
+        if has_link_pool and node in bg.target_metadata.index:
+            t_type = bg.target_metadata.loc[node, "target_type"]
+            if t_type in _LINK_TARGET_TYPES:
+                pool = "link_pool"
+        result[node] = pool
+    return result
+
+
 def compute_critical_path(
     bg: BuildGraph,
     timing: pd.DataFrame,
@@ -36,7 +116,7 @@ def compute_critical_path(
     durations = _get_durations(bg, timing, time_col)
 
     # Forward pass: process dependencies before dependants
-    # Since A→B means "A depends on B", reversed topological order gives deps first
+    # Since A->B means "A depends on B", reversed topological order gives deps first
     earliest_start: dict[str, float] = {}
     earliest_finish: dict[str, float] = {}
     topo_order = list(nx.topological_sort(g))
@@ -63,21 +143,22 @@ def compute_critical_path(
     rows = []
     for node in g.nodes():
         slack = latest_start[node] - earliest_start[node]
-        rows.append({
-            "cmake_target": node,
-            "build_time_ms": durations[node],
-            "earliest_start_ms": earliest_start[node],
-            "earliest_finish_ms": earliest_finish[node],
-            "latest_start_ms": latest_start[node],
-            "latest_finish_ms": latest_finish[node],
-            "slack_ms": slack,
-            "on_critical_path": abs(slack) < 1e-9,
-        })
+        rows.append(
+            {
+                "cmake_target": node,
+                "build_time_ms": durations[node],
+                "earliest_start_ms": earliest_start[node],
+                "earliest_finish_ms": earliest_finish[node],
+                "latest_start_ms": latest_start[node],
+                "latest_finish_ms": latest_finish[node],
+                "slack_ms": slack,
+                "on_critical_path": abs(slack) < 1e-9,
+            }
+        )
     target_slack = pd.DataFrame(rows)
 
     # Reconstruct the critical path as an ordered list of targets
     cp_nodes = [r["cmake_target"] for r in rows if abs(r["slack_ms"]) < 1e-9]
-    # Sort by earliest_start to get proper order
     cp_nodes.sort(key=lambda n: earliest_start[n])
 
     total_work = sum(durations.values())
@@ -97,81 +178,136 @@ def simulate_build(
     n_cores: int = 8,
     time_col: str = "total_build_time_ms",
     scope: AnalysisScope | None = None,
+    target: str | None = None,
+    pool_config: PoolConfig | None = None,
+    pool_col: str = "pool",
 ) -> pd.DataFrame:
-    """Simulate a parallel build using greedy list-scheduling."""
+    """Simulate a parallel build using a Ninja v1.12-faithful scheduler.
+
+    Scheduling policy:
+    - Priority = Ninja-style depth-based critical path weight (non-phony
+      nodes only). Higher weight = dequeued first.
+    - Global concurrency bounded by n_cores.
+    - Per-pool concurrency bounded by PoolConfig.depth(pool_name).
+    - Flat graph: no target grouping. All ready nodes compete globally.
+
+    Args:
+        bg: Build graph (A -> B means A depends on B).
+        timing: DataFrame with cmake_target and time_col columns.
+        n_cores: Global parallelism cap (-j equivalent).
+        time_col: Column in timing to use as duration.
+        scope: Restrict to scoped subgraph (mutually exclusive with target).
+        target: Build only this target and its transitive dependencies.
+        pool_config: Per-pool depth limits. None = no pool constraints.
+        pool_col: Column in bg.target_metadata holding pool assignments.
+
+    Returns:
+        DataFrame with columns: cmake_target, start_ms, end_ms, core.
+    """
+    if scope is not None and target is not None:
+        raise ValueError("'scope' and 'target' are mutually exclusive")
     if scope is not None:
         bg = bg.subgraph(scope)
+    if target is not None:
+        if target not in bg.graph:
+            raise KeyError(f"Target '{target}' not found in build graph")
+        nodes = {target} | nx.descendants(bg.graph, target)
+        sub_g = bg.graph.subgraph(nodes).copy()
+        sub_meta = bg.target_metadata.loc[bg.target_metadata.index.intersection(nodes)]
+        bg = BuildGraph(graph=sub_g, target_metadata=sub_meta)
+
+    if pool_config is None:
+        pool_config = PoolConfig.default()
 
     g = bg.graph
     durations = _get_durations(bg, timing, time_col)
+    cp_weights = _compute_cp_weights(bg)
+    pool_map = _pool_assignments(bg, pool_config, pool_col)
 
-    # Priority = longest path from target to any root (dependant chain)
-    # Process in topological order so dependants are computed before dependencies
-    longest_to_root: dict[str, float] = {}
-    for node in nx.topological_sort(g):
-        dependants = list(g.predecessors(node))
-        longest_to_root[node] = durations[node] + max(
-            (longest_to_root[d] for d in dependants), default=0.0
-        )
+    # Track dependency readiness
+    remaining_deps: dict[str, int] = {node: g.out_degree(node) for node in g.nodes()}
+    ready_at: dict[str, float] = {node: 0.0 for node in g.nodes() if g.out_degree(node) == 0}
 
-    # Track remaining dependency counts and when each target becomes ready
-    remaining_deps: dict[str, int] = {}
-    ready_at: dict[str, float] = {}  # time when last dependency finishes
-
-    for node in g.nodes():
-        n_deps = g.out_degree(node)
-        remaining_deps[node] = n_deps
-        if n_deps == 0:
-            ready_at[node] = 0.0
-
-    # ready heap: (-priority, target_name, ready_time)
-    ready: list[tuple[float, str, float]] = []
+    # Ready queue: max-heap keyed on cp_weight via negation. Entry = (-weight, node, ready_time)
+    ready: list[tuple[int, str, float]] = []
     for node in g.nodes():
         if remaining_deps[node] == 0:
-            heapq.heappush(ready, (-longest_to_root[node], node, 0.0))
+            heapq.heappush(ready, (-cp_weights[node], node, 0.0))
+
+    # Per-pool state: running count + delayed priority queue
+    pool_running: dict[str, int] = {}
+    pool_delayed: dict[str, list[tuple[int, str, float]]] = {}
 
     # Core availability: min-heap of (free_at_time, core_id)
     core_heap: list[tuple[float, int]] = [(0.0, i) for i in range(n_cores)]
 
-    schedule: list[dict] = []
-    finish_events: list[tuple[float, str]] = []  # (finish_time, node)
+    schedule: list[dict[str, object]] = []
+    finish_events: list[tuple[float, str]] = []
 
-    def _process_finish(finished_time: float, finished_node: str) -> None:
+    def _release_dependants(finished_time: float, finished_node: str) -> None:
         for dependant in g.predecessors(finished_node):
             remaining_deps[dependant] -= 1
-            # Track the latest dependency finish time
             ready_at[dependant] = max(ready_at.get(dependant, 0.0), finished_time)
             if remaining_deps[dependant] == 0:
-                heapq.heappush(ready, (-longest_to_root[dependant], dependant, ready_at[dependant]))
+                heapq.heappush(ready, (-cp_weights[dependant], dependant, ready_at[dependant]))
+
+    def _release_pool(finished_time: float, finished_node: str) -> None:
+        pool = pool_map[finished_node]
+        pool_running[pool] = pool_running.get(pool, 0) - 1
+        delayed = pool_delayed.get(pool)
+        if delayed:
+            depth = pool_config.depth(pool)
+            while delayed and (depth == 0 or pool_running.get(pool, 0) < depth):
+                neg_w, node, node_ready_at = heapq.heappop(delayed)
+                # Item cannot start before pool capacity freed up
+                effective_ready = max(node_ready_at, finished_time)
+                heapq.heappush(ready, (neg_w, node, effective_ready))
+                if depth > 0:
+                    break  # release one at a time; scheduler loop will check again
+
+    def _process_finish(finished_time: float, finished_node: str) -> None:
+        _release_pool(finished_time, finished_node)
+        _release_dependants(finished_time, finished_node)
 
     while ready or finish_events:
-        if ready:
-            # Get the earliest available core
-            core_time, core_id = heapq.heappop(core_heap)
+        # Try to start tasks on available cores
+        started_any = False
+        while ready and core_heap:
+            core_time, core_id = core_heap[0]
 
-            # Pop the highest-priority ready target
-            _, node, node_ready_at = heapq.heappop(ready)
+            neg_w, node, node_ready_at = heapq.heappop(ready)
 
-            # Target can't start before both core is free AND dependencies done
+            # Check pool capacity
+            pool = pool_map[node]
+            pool_depth = pool_config.depth(pool)
+            if pool_depth > 0 and pool_running.get(pool, 0) >= pool_depth:
+                if pool not in pool_delayed:
+                    pool_delayed[pool] = []
+                heapq.heappush(pool_delayed[pool], (neg_w, node, node_ready_at))
+                continue
+
+            # Start the task
+            heapq.heappop(core_heap)
             start = max(core_time, node_ready_at)
             end = start + durations[node]
-            schedule.append({
-                "cmake_target": node,
-                "start_ms": start,
-                "end_ms": end,
-                "core": core_id,
-            })
+            schedule.append({"cmake_target": node, "start_ms": start, "end_ms": end, "core": core_id})
             heapq.heappush(core_heap, (end, core_id))
             heapq.heappush(finish_events, (end, node))
+            pool_running[pool] = pool_running.get(pool, 0) + 1
+            started_any = True
 
-            # Process any finish events that have occurred by now
-            while finish_events and finish_events[0][0] <= start:
+        if not started_any:
+            # Advance time to next finish event
+            if finish_events:
                 ft, fn = heapq.heappop(finish_events)
                 _process_finish(ft, fn)
+            else:
+                break
 
-        elif finish_events:
-            ft, fn = heapq.heappop(finish_events)
-            _process_finish(ft, fn)
+    # Drain remaining finish events to release dependants
+    while finish_events:
+        ft, fn = heapq.heappop(finish_events)
+        _process_finish(ft, fn)
 
     return pd.DataFrame(schedule)
 
@@ -254,7 +390,10 @@ def whatif_reduce_target_time(
     """Simulate reducing a target's build time and report the impact."""
     baseline = compute_critical_path(bg, timing, time_col)
 
-    original_time = timing.loc[timing["cmake_target"] == target, time_col].iloc[0]
+    matches = timing.loc[timing["cmake_target"] == target, time_col]
+    if matches.empty:
+        raise KeyError(f"Target '{target}' not found in timing DataFrame")
+    original_time = matches.iloc[0]
     reduced_time = int(original_time * (1 - reduction_pct / 100))
 
     modified_timing = timing.copy()
@@ -265,9 +404,7 @@ def whatif_reduce_target_time(
     baseline_ms = baseline.total_time_s * 1000
     new_ms = new_cp.total_time_s * 1000
 
-    on_cp = baseline.target_slack[
-        baseline.target_slack["cmake_target"] == target
-    ].iloc[0]["on_critical_path"]
+    on_cp = baseline.target_slack[baseline.target_slack["cmake_target"] == target].iloc[0]["on_critical_path"]
 
     return {
         "target": target,

@@ -10,7 +10,5 @@ wheels/
 .venv
 
 # Data directories (contents gitignored, structure kept via .gitkeep)
-data/builds/
-data/raw/
-data/processed/
-data/results/
+data/**
+tests/data/**

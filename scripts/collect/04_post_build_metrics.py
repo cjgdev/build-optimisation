@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from build_optimiser.config import Config
+from buildanalysis.config import Config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ def map_object_to_source(
     for i, part in enumerate(parts):
         if part == "CMakeFiles" and i + 1 < len(parts) and parts[i + 1].endswith(".dir"):
             target_name = parts[i + 1][:-4]  # strip .dir
-            source_suffix = "/".join(parts[i + 2:])
+            source_suffix = "/".join(parts[i + 2 :])
             break
 
     if source_suffix and source_suffix.endswith(".o"):
@@ -101,9 +101,11 @@ def count_lines_python(filepath: str) -> dict:
 
 def try_cloc(filepaths: list[str]) -> dict[str, dict] | None:
     """Try to run cloc for accurate SLOC counts. Returns None if cloc unavailable."""
+    import tempfile
+
+    list_file = None
     try:
         # Write file list to temp file
-        import tempfile
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             for fp in filepaths:
                 f.write(fp + "\n")
@@ -111,9 +113,10 @@ def try_cloc(filepaths: list[str]) -> dict[str, dict] | None:
 
         result = subprocess.run(
             ["cloc", "--by-file", "--json", f"--list-file={list_file}"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
-        os.unlink(list_file)
 
         data = json.loads(result.stdout)
         results = {}
@@ -130,6 +133,9 @@ def try_cloc(filepaths: list[str]) -> dict[str, dict] | None:
         return results
     except (FileNotFoundError, subprocess.CalledProcessError):
         return None
+    finally:
+        if list_file and os.path.exists(list_file):
+            os.unlink(list_file)
 
 
 def main() -> None:
@@ -156,12 +162,14 @@ def main() -> None:
     obj_records = []
     for obj_path in obj_files:
         source_file, target = map_object_to_source(obj_path, cfg.build_dir, file_index)
-        obj_records.append({
-            "source_file": source_file or "",
-            "cmake_target": target or "",
-            "object_file_path": str(obj_path),
-            "object_size_bytes": obj_path.stat().st_size,
-        })
+        obj_records.append(
+            {
+                "source_file": source_file or "",
+                "cmake_target": target or "",
+                "object_file_path": str(obj_path),
+                "object_size_bytes": obj_path.stat().st_size,
+            }
+        )
 
     obj_path = cfg.raw_data_dir / "object_files.csv"
     with open(obj_path, "w", newline="") as f:
@@ -201,22 +209,33 @@ def main() -> None:
 
         source_size = os.path.getsize(source_file) if os.path.exists(source_file) else 0
 
-        sloc_records.append({
-            "source_file": source_file,
-            "cmake_target": target,
-            "language": language,
-            "blank_lines": counts["blank_lines"],
-            "comment_lines": counts["comment_lines"],
-            "code_lines": counts["code_lines"],
-            "is_generated": is_generated,
-            "source_size_bytes": source_size,
-        })
+        sloc_records.append(
+            {
+                "source_file": source_file,
+                "cmake_target": target,
+                "language": language,
+                "blank_lines": counts["blank_lines"],
+                "comment_lines": counts["comment_lines"],
+                "code_lines": counts["code_lines"],
+                "is_generated": is_generated,
+                "source_size_bytes": source_size,
+            }
+        )
 
     sloc_path = cfg.raw_data_dir / "sloc.csv"
     with open(sloc_path, "w", newline="") as f:
         writer = csv.DictWriter(
-            f, fieldnames=["source_file", "cmake_target", "language", "blank_lines",
-                          "comment_lines", "code_lines", "is_generated", "source_size_bytes"]
+            f,
+            fieldnames=[
+                "source_file",
+                "cmake_target",
+                "language",
+                "blank_lines",
+                "comment_lines",
+                "code_lines",
+                "is_generated",
+                "source_size_bytes",
+            ],
         )
         writer.writeheader()
         writer.writerows(sloc_records)

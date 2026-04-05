@@ -27,18 +27,16 @@ trap 'echo "Consolidation FAILED at step in progress"; exit 1' ERR
 
 # Tier 1: no inter-script dependencies (parallel)
 echo "=== Tier 1: schedule, edge list, file metrics, contributor metrics ==="
-PIDS=()
+TIER1_PIDS=()
 python "$CONSOLIDATE_DIR/build_schedule.py" --config "$CONFIG" &
-PIDS+=($!)
+TIER1_PIDS+=($!)
 python "$CONSOLIDATE_DIR/build_edge_list.py" --config "$CONFIG" &
-PIDS+=($!)
+TIER1_PIDS+=($!)
 python "$CONSOLIDATE_DIR/build_file_metrics.py" --config "$CONFIG" &
-PIDS+=($!)
+TIER1_PIDS+=($!)
 python "$CONSOLIDATE_DIR/build_contributor_metrics.py" --config "$CONFIG" &
-PIDS+=($!)
-for pid in "${PIDS[@]}"; do
-    wait "$pid"
-done
+TIER1_PIDS+=($!)
+fail=0; for pid in "${TIER1_PIDS[@]}"; do wait "$pid" || fail=1; done; if (( fail )); then echo "=== Tier 1 FAILED ===" >&2; exit 1; fi
 echo "=== Tier 1 complete ==="
 
 # Tier 2: requires file_metrics.parquet

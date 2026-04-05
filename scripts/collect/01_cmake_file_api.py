@@ -26,14 +26,13 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from build_optimiser.cmake_file_api import (
+from buildanalysis.cmake_file_api import (
     build_codegen_inventory,
-    build_file_index,
     create_query_files,
     parse_reply,
     reconstruct_compile_command,
 )
-from build_optimiser.config import Config
+from buildanalysis.config import Config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -97,7 +96,6 @@ def extract_and_write(cfg: Config) -> None:
     logger.info("  wrote targets.json (%d targets)", len(targets_data))
 
     # files.json
-    file_index = build_file_index(codemodel)
     files_data = []
     for target in codemodel.targets.values():
         for src in target.sources:
@@ -117,13 +115,15 @@ def extract_and_write(cfg: Config) -> None:
         for src in target.sources:
             cmd = reconstruct_compile_command(src, target, compiler)
             if cmd:
-                enriched.append({
-                    "directory": target.build_dir,
-                    "command": cmd,
-                    "file": src.path,
-                    "cmake_target": src.cmake_target,
-                    "is_generated": src.is_generated,
-                })
+                enriched.append(
+                    {
+                        "directory": target.build_dir,
+                        "command": cmd,
+                        "file": src.path,
+                        "cmake_target": src.cmake_target,
+                        "is_generated": src.is_generated,
+                    }
+                )
     _write_json(output_dir / "compile_commands_enriched.json", enriched)
     logger.info("  wrote compile_commands_enriched.json (%d entries)", len(enriched))
 

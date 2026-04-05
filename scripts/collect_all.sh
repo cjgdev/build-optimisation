@@ -62,8 +62,12 @@ run_step "03" "03_instrumented_build.py"
 
 # Wait for git history if it was started
 if [[ -n "$GIT_PID" ]]; then
-    wait "$GIT_PID"
-    echo "=== Step 02 complete ==="
+    if wait "$GIT_PID"; then
+        echo "=== Step 02 complete ==="
+    else
+        echo "=== Step 02 FAILED ===" >&2
+        exit 1
+    fi
 fi
 
 # Steps 4, 5, 6 can run in parallel (all read from completed build)
@@ -91,9 +95,14 @@ else
 fi
 
 # Wait for all parallel steps
+fail=0
 for pid in "${PIDS[@]}"; do
-    wait "$pid"
+    wait "$pid" || fail=1
 done
+if (( fail )); then
+    echo "=== One or more of steps 04/05/06 FAILED ===" >&2
+    exit 1
+fi
 
 echo ""
 echo "=== Collection complete in $(( SECONDS - TOTAL_START ))s ==="

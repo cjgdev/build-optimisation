@@ -11,9 +11,8 @@ Reads a messages.def file and produces 4 C++ source files:
   - message_registry.cpp
 """
 
-import sys
 import os
-
+import sys
 
 # ---------------------------------------------------------------------------
 # Type mapping from .def types to C++ types
@@ -21,7 +20,7 @@ import os
 
 TYPE_MAP = {
     "uint32": "uint32_t",
-    "int64":  "int64_t",
+    "int64": "int64_t",
     "string": "std::string",
     "double": "double",
 }
@@ -30,6 +29,7 @@ TYPE_MAP = {
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
+
 
 def parse_def_file(path):
     """
@@ -77,10 +77,12 @@ def parse_def_file(path):
                 parts = field_decl.split()
                 if len(parts) == 2:
                     field_type, field_name = parts
-                    current["fields"].append({
-                        "type": field_type,
-                        "name": field_name,
-                    })
+                    current["fields"].append(
+                        {
+                            "type": field_type,
+                            "name": field_name,
+                        }
+                    )
 
     return messages
 
@@ -93,6 +95,7 @@ def cpp_type(def_type):
 # ---------------------------------------------------------------------------
 # Generator: messages.h
 # ---------------------------------------------------------------------------
+
 
 def gen_messages_h(messages):
     lines = []
@@ -133,9 +136,9 @@ def gen_messages_h(messages):
 
 def _gen_struct(msg):
     """Return a list of lines for one message struct definition."""
-    name   = msg["name"]
+    name = msg["name"]
     fields = msg["fields"]
-    lines  = []
+    lines = []
 
     # ----- Opening comment block -----
     lines.append("// " + "=" * 60)
@@ -277,6 +280,7 @@ def _gen_struct(msg):
 # Generator: messages.cpp
 # ---------------------------------------------------------------------------
 
+
 def gen_messages_cpp(messages):
     lines = []
 
@@ -299,10 +303,10 @@ def gen_messages_cpp(messages):
 
 
 def _gen_impl(msg):
-    name   = msg["name"]
+    name = msg["name"]
     fields = msg["fields"]
-    lines  = []
-    delim  = "|"
+    lines = []
+    delim = "|"
 
     lines.append("// " + "-" * 60)
     lines.append("// " + name + " implementation")
@@ -313,7 +317,7 @@ def _gen_impl(msg):
     lines.append("std::string " + name + "::serialize() const")
     lines.append("{")
     lines.append("    // Build a delimited string from all fields.")
-    lines.append('    // Delimiter: \'' + delim + '\'')
+    lines.append("    // Delimiter: '" + delim + "'")
     lines.append("    std::ostringstream oss;")
     for i, f in enumerate(fields):
         if i > 0:
@@ -331,7 +335,7 @@ def _gen_impl(msg):
     lines.append("    std::string token;")
     lines.append("    std::vector<std::string> tokens;")
     lines.append("")
-    lines.append('    while (std::getline(iss, token, \'' + delim + "\'))")
+    lines.append("    while (std::getline(iss, token, '" + delim + "'))")
     lines.append("    {")
     lines.append("        tokens.push_back(token);")
     lines.append("    }")
@@ -391,6 +395,7 @@ def _gen_impl(msg):
 # ---------------------------------------------------------------------------
 # Generator: message_registry.h
 # ---------------------------------------------------------------------------
+
 
 def gen_message_registry_h(messages):
     lines = []
@@ -462,6 +467,7 @@ def gen_message_registry_h(messages):
 # ---------------------------------------------------------------------------
 # Generator: message_registry.cpp
 # ---------------------------------------------------------------------------
+
 
 def gen_message_registry_cpp(messages):
     lines = []
@@ -568,12 +574,13 @@ def gen_message_registry_cpp(messages):
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main():
     if len(sys.argv) != 3:
         print("Usage: python3 generate_messages.py <def_file> <output_dir>", file=sys.stderr)
         sys.exit(1)
 
-    def_file   = sys.argv[1]
+    def_file = sys.argv[1]
     output_dir = sys.argv[2]
 
     if not os.path.isfile(def_file):
@@ -587,10 +594,10 @@ def main():
     print("Found " + str(len(messages)) + " message(s): " + ", ".join(m["name"] for m in messages))
 
     files = {
-        "messages.h":            gen_messages_h(messages),
-        "messages.cpp":          gen_messages_cpp(messages),
-        "message_registry.h":    gen_message_registry_h(messages),
-        "message_registry.cpp":  gen_message_registry_cpp(messages),
+        "messages.h": gen_messages_h(messages),
+        "messages.cpp": gen_messages_cpp(messages),
+        "message_registry.h": gen_message_registry_h(messages),
+        "message_registry.cpp": gen_message_registry_cpp(messages),
     }
 
     for filename, content in files.items():

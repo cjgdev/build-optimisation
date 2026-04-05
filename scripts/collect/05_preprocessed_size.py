@@ -16,7 +16,6 @@ import csv
 import json
 import logging
 import os
-import re
 import shlex
 import subprocess
 import sys
@@ -26,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from build_optimiser.config import Config
+from buildanalysis.config import Config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -87,14 +86,15 @@ def preprocess_file(entry: dict) -> dict:
             "is_generated": is_generated,
         }
 
+    tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".i", delete=False) as tmp:
             tmp_path = tmp.name
 
         full_cmd = f"{modified_cmd} -o {shlex.quote(tmp_path)}"
         result = subprocess.run(
-            full_cmd,
-            shell=True,
+            shlex.split(full_cmd),
+            shell=False,
             capture_output=True,
             cwd=entry.get("directory", "."),
             timeout=120,
@@ -108,7 +108,7 @@ def preprocess_file(entry: dict) -> dict:
         os.unlink(tmp_path)
     except (subprocess.TimeoutExpired, OSError):
         size = 0
-        if os.path.exists(tmp_path):
+        if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
     return {
@@ -159,9 +159,7 @@ def main() -> None:
     cfg.raw_data_dir.mkdir(parents=True, exist_ok=True)
     output_path = cfg.raw_data_dir / "preprocessed_size.csv"
     with open(output_path, "w", newline="") as f:
-        writer = csv.DictWriter(
-            f, fieldnames=["source_file", "cmake_target", "preprocessed_bytes", "is_generated"]
-        )
+        writer = csv.DictWriter(f, fieldnames=["source_file", "cmake_target", "preprocessed_bytes", "is_generated"])
         writer.writeheader()
         writer.writerows(results)
     logger.info("Wrote %s (%d rows)", output_path, len(results))

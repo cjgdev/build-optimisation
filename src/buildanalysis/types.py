@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum, auto
+from typing import TYPE_CHECKING
 
 import networkx as nx
 import pandas as pd
+
+if TYPE_CHECKING:
+    from buildanalysis.teams import TeamConfig
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -93,6 +97,31 @@ class AnalysisScope:
     def is_global(self) -> bool:
         """True if no filters are applied."""
         return self.targets is None and self.teams is None and self.files is None
+
+    @classmethod
+    def for_team(
+        cls,
+        team_name: str,
+        team_config: TeamConfig,
+        target_ownership: pd.DataFrame,
+    ) -> AnalysisScope:
+        """Create a scope restricting to targets owned by a team.
+
+        Parameters
+        ----------
+        team_name:
+            Team name from teams.yaml.
+        team_config:
+            Loaded TeamConfig (used for validation only).
+        target_ownership:
+            DataFrame with ``cmake_target`` and ``owning_team`` columns.
+        """
+        owned = target_ownership.loc[target_ownership["owning_team"] == team_name, "cmake_target"]
+        return cls(
+            targets=frozenset(owned),
+            teams=frozenset([team_name]),
+            label=f"team:{team_name}",
+        )
 
 
 # ---------------------------------------------------------------------------

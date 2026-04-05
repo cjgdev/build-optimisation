@@ -1,0 +1,13 @@
+{
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "basic",
+  "reportArgumentType": "none",
+  "reportIndexIssue": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportGeneralTypeIssues": "none",
+  "reportCallIssue": "none",
+  "reportIncompatibleVariableOverride": "none",
+  "reportOperatorIssue": "none",
+  "reportReturnType": "none",
+  "reportAssignmentType": "none"
+}

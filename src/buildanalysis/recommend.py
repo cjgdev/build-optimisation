@@ -31,6 +31,8 @@ class Intervention:
     estimated_effort_days: float
     confidence: float
     team: str | None = None
+    module: str | None = None
+    category: str = "medium"
     rationale: str = ""
 
 
@@ -57,6 +59,8 @@ def score_header_interventions(
         direct_fan_in = row["direct_fan_in"]
 
         impact_ms = fan_in * size_bytes * 0.3 / 1e6
+        if impact_ms == 0:
+            continue
         effort = max(0.5, min(20.0, direct_fan_in * 0.5))
 
         n_commits = row.get("n_commits", 0)
@@ -93,8 +97,8 @@ def score_dependency_interventions(
 
     candidates: list[dict] = []
     for _, row in edge_list.iterrows():
-        source = row["source"]
-        dependency = row["dependency"]
+        source = row["source_target"]
+        dependency = row["dest_target"]
         on_cp = source in cp_set and dependency in cp_set
         is_public = has_visibility and row.get("cmake_visibility") == "PUBLIC"
 
@@ -198,6 +202,15 @@ def score_target_split_interventions(
     return interventions
 
 
+def _categorise_effort(effort_days: float) -> str:
+    """Classify intervention effort into quick_win, medium, or strategic."""
+    if effort_days < 2:
+        return "quick_win"
+    if effort_days <= 10:
+        return "medium"
+    return "strategic"
+
+
 def build_pareto_frontier(interventions: list[Intervention]) -> pd.DataFrame:
     """Identify Pareto-optimal interventions on the impact-vs-effort plane.
 
@@ -212,6 +225,7 @@ def build_pareto_frontier(interventions: list[Intervention]) -> pd.DataFrame:
             "effort_days": iv.estimated_effort_days,
             "confidence": iv.confidence,
             "team": iv.team,
+            "module": iv.module,
             "rationale": iv.rationale,
             "targets_affected": iv.targets_affected,
         }
@@ -219,8 +233,17 @@ def build_pareto_frontier(interventions: list[Intervention]) -> pd.DataFrame:
     ]
     if not records:
         cols = [
-            "type", "description", "impact_ms", "effort_days",
-            "confidence", "team", "rationale", "targets_affected", "pareto_optimal",
+            "type",
+            "description",
+            "impact_ms",
+            "effort_days",
+            "confidence",
+            "team",
+            "module",
+            "rationale",
+            "targets_affected",
+            "pareto_optimal",
+            "category",
         ]
         return pd.DataFrame(columns=cols)
 
@@ -245,6 +268,7 @@ def build_pareto_frontier(interventions: list[Intervention]) -> pd.DataFrame:
         pareto.append(not dominated)
 
     df["pareto_optimal"] = pareto
+    df["category"] = df["effort_days"].apply(_categorise_effort)
     df = df.sort_values("impact_ms", ascending=False).reset_index(drop=True)
     return df
 
