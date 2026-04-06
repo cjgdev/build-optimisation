@@ -4,9 +4,7 @@ import networkx as nx
 import pandas as pd
 
 from buildanalysis.simulation import (
-    codegen_cascade_cost,
     expected_daily_cost,
-    feature_subset_build_time,
     rebuild_cost,
     replay_git_history,
     simulate_incremental_build,
@@ -81,13 +79,6 @@ class TestExpectedDailyCost:
         cost = expected_daily_cost(G, "C", df, df, git_history_months=12)
         expected = (5 / 240) * 350
         assert abs(cost - expected) < 1.0
-
-
-class TestCodegenCascadeCost:
-    def test_same_as_rebuild_cost(self):
-        G = make_chain_graph()
-        df = make_metrics_df()
-        assert codegen_cascade_cost(G, "C", df) == rebuild_cost(G, "C", df)
 
 
 class TestSimulateMerge:
@@ -203,31 +194,3 @@ class TestReplayGitHistory:
         )
         result = replay_git_history(G, commits, file_to_target, times, n_cores=4)
         assert result.iloc[0]["build_time_ms"] == 0.0
-
-
-class TestFeatureSubsetBuildTime:
-    def test_core_only(self):
-        G = make_chain_graph()
-        times = {"A": 100, "B": 200, "C": 50}
-        feature_groups = pd.DataFrame(
-            {
-                "cmake_target": ["A", "B", "C"],
-                "feature_group": ["feature_1", "core", "core"],
-            }
-        )
-        result = feature_subset_build_time(G, feature_groups, [], times, n_cores=4)
-        # Core only: B and C
-        assert result > 0
-
-    def test_all_groups(self):
-        G = make_chain_graph()
-        times = {"A": 100, "B": 200, "C": 50}
-        feature_groups = pd.DataFrame(
-            {
-                "cmake_target": ["A", "B", "C"],
-                "feature_group": ["feature_1", "core", "core"],
-            }
-        )
-        result = feature_subset_build_time(G, feature_groups, ["feature_1"], times, n_cores=4)
-        # All targets enabled
-        assert result == 350  # chain: C + B + A

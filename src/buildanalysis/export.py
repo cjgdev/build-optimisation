@@ -63,8 +63,20 @@ def _default_for_key(key: str):
     # Numeric keys should default to 0, not empty string (which breaks GEXF typing)
     if any(key.endswith(s) for s in ("_ms", "_s", "_count", "_bytes", "_ratio", "_fraction", "_score", "_mb")):
         return 0.0
-    if key in ("sloc", "in_degree", "out_degree", "layer", "community", "file_count", "code_lines",
-               "depth", "weight", "n_commits", "total_churn", "contributor_count"):
+    if key in (
+        "sloc",
+        "in_degree",
+        "out_degree",
+        "layer",
+        "community",
+        "file_count",
+        "code_lines",
+        "depth",
+        "weight",
+        "n_commits",
+        "total_churn",
+        "contributor_count",
+    ):
         return 0
     return ""
 

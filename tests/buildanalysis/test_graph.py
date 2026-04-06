@@ -7,167 +7,18 @@ import pandas as pd
 import pytest
 
 from buildanalysis.graph import (
-    attach_metrics,
     build_dependency_graph,
     build_include_graph,
     compute_centrality_metrics,
     compute_graph_summary,
     compute_layer_assignments,
     compute_transitive_deps,
-    direct_dependants,
-    direct_dependencies,
     find_layer_violations,
-    load_raw_graph,
-    load_raw_graph_from_codemodel,
-    subgraph_for_target,
-    topological_depth,
-    transitive_dependants,
-    transitive_dependencies,
 )
 from buildanalysis.types import BuildGraph
 
 DATA_DIR = Path("data/processed")
 HAS_DATA = DATA_DIR.exists() and (DATA_DIR / "target_metrics.parquet").exists()
-
-
-# ---------------------------------------------------------------------------
-# Raw nx.DiGraph helpers (for testing functions that accept both types)
-# ---------------------------------------------------------------------------
-
-
-def make_diamond_graph() -> nx.DiGraph:
-    """Build a diamond dependency graph: A -> B, A -> C, B -> D, C -> D.
-
-    A depends on B and C. B and C both depend on D.
-    """
-    G = nx.DiGraph()
-    G.add_edge("A", "B", is_direct=True, dependency_type="link")
-    G.add_edge("A", "C", is_direct=True, dependency_type="link")
-    G.add_edge("B", "D", is_direct=True, dependency_type="link")
-    G.add_edge("C", "D", is_direct=True, dependency_type="link")
-    # A also has a transitive edge to D
-    G.add_edge("A", "D", is_direct=False, dependency_type="transitive")
-    return G
-
-
-def make_linear_graph() -> nx.DiGraph:
-    """Build a linear chain: A -> B -> C -> D."""
-    G = nx.DiGraph()
-    G.add_edge("A", "B", is_direct=True, dependency_type="link")
-    G.add_edge("B", "C", is_direct=True, dependency_type="link")
-    G.add_edge("C", "D", is_direct=True, dependency_type="link")
-    return G
-
-
-# ---------------------------------------------------------------------------
-# Tests: node-level queries (raw nx.DiGraph)
-# ---------------------------------------------------------------------------
-
-
-class TestDirectDependencies:
-    def test_diamond(self):
-        G = make_diamond_graph()
-        deps = direct_dependencies(G, "A")
-        assert set(deps) == {"B", "C"}
-
-    def test_excludes_transitive(self):
-        G = make_diamond_graph()
-        deps = direct_dependencies(G, "A")
-        assert "D" not in deps  # D is transitive-only for A
-
-    def test_leaf_has_no_deps(self):
-        G = make_diamond_graph()
-        deps = direct_dependencies(G, "D")
-        assert deps == []
-
-    def test_accepts_build_graph(self, diamond_graph):
-        deps = direct_dependencies(diamond_graph, "A")
-        assert set(deps) == {"B", "C"}
-
-
-class TestTransitiveDependencies:
-    def test_diamond(self):
-        G = make_diamond_graph()
-        trans = transitive_dependencies(G, "A")
-        assert "D" in trans
-
-    def test_leaf_has_no_transitive(self):
-        G = make_diamond_graph()
-        trans = transitive_dependencies(G, "D")
-        assert trans == set()
-
-    def test_accepts_build_graph(self, diamond_graph):
-        trans = transitive_dependencies(diamond_graph, "A")
-        assert "D" in trans
-
-
-class TestDirectDependants:
-    def test_diamond(self):
-        G = make_diamond_graph()
-        deps = direct_dependants(G, "D")
-        assert set(deps) == {"B", "C"}
-
-    def test_root_has_no_dependants(self):
-        G = make_diamond_graph()
-        deps = direct_dependants(G, "A")
-        assert deps == []
-
-    def test_accepts_build_graph(self, diamond_graph):
-        deps = direct_dependants(diamond_graph, "D")
-        assert set(deps) == {"B", "C"}
-
-
-class TestTransitiveDependants:
-    def test_diamond(self):
-        G = make_diamond_graph()
-        deps = transitive_dependants(G, "D")
-        assert "A" in deps
-        assert "B" in deps
-        assert "C" in deps
-
-    def test_accepts_build_graph(self, diamond_graph):
-        deps = transitive_dependants(diamond_graph, "D")
-        assert "A" in deps
-
-
-class TestTopologicalDepth:
-    def test_linear_chain(self):
-        G = make_linear_graph()
-        assert topological_depth(G, "A") == 0  # root
-        assert topological_depth(G, "D") == 3  # deepest
-
-    def test_diamond_depth(self):
-        G = make_diamond_graph()
-        assert topological_depth(G, "D") == 2  # A->B->D or A->C->D
-
-    def test_accepts_build_graph(self, diamond_graph):
-        assert topological_depth(diamond_graph, "D") == 2
-
-
-class TestAttachMetrics:
-    def test_sets_node_attributes(self):
-        G = make_diamond_graph()
-        df = pd.DataFrame(
-            {
-                "cmake_target": ["A", "B", "C", "D"],
-                "total_build_time_ms": [100, 200, 150, 50],
-            }
-        )
-        attach_metrics(G, df)
-        assert G.nodes["A"]["total_build_time_ms"] == 100
-        assert G.nodes["B"]["total_build_time_ms"] == 200
-
-
-class TestSubgraph:
-    def test_depth_1(self):
-        G = make_linear_graph()
-        sub = subgraph_for_target(G, "B", depth=1)
-        assert "B" in sub
-        assert "A" in sub and "C" in sub
-
-    def test_accepts_build_graph(self, diamond_graph):
-        sub = subgraph_for_target(diamond_graph, "B", depth=1)
-        assert "B" in sub
 
 
 # ---------------------------------------------------------------------------
@@ -487,53 +338,3 @@ class TestGraphSummary:
         assert summary["max_depth"] == 4
         assert summary["max_out_degree"] == 1
         assert summary["max_in_degree"] == 1
-
-
-class TestRawGraphLoaders:
-    def test_load_raw_graph(self, tmp_path):
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-
-        df = pd.DataFrame(
-            {
-                "source_target": ["A", "B"],
-                "dest_target": ["B", "C"],
-                "is_direct": [True, True],
-                "dependency_type": ["link", "link"],
-                "source_target_type": ["executable", "static_library"],
-                "dest_target_type": ["static_library", "static_library"],
-                "from_dependency": ["A", "B"],
-                "cmake_visibility": ["PUBLIC", "PUBLIC"],
-            }
-        )
-        path = tmp_path / "edge_list.parquet"
-        pq.write_table(pa.Table.from_pandas(df), path)
-        g = load_raw_graph(path)
-        assert g.number_of_nodes() == 3
-        assert g.number_of_edges() == 2
-        assert g["A"]["B"]["is_direct"] is True
-
-    def test_load_raw_graph_from_codemodel(self):
-        from buildanalysis.cmake_file_api import CodeModel, Edge
-
-        edges = [
-            Edge(
-                source_target="A",
-                dest_target="B",
-                is_direct=True,
-                dependency_type="link",
-                from_dependency="A",
-                cmake_visibility="PUBLIC",
-            ),
-        ]
-        targets = {"A": None, "B": None}
-        cm = CodeModel(
-            targets=targets,
-            id_to_name={},
-            edges=edges,
-            cmake_version="4.0.0",
-            codemodel_version="2.9",
-        )
-        g = load_raw_graph_from_codemodel(cm)
-        assert g.number_of_nodes() == 2
-        assert g.has_edge("A", "B")

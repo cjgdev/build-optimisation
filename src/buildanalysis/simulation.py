@@ -61,15 +61,6 @@ def expected_daily_cost(
     return change_prob * rebuild_cost(G, target, metrics_df)
 
 
-def codegen_cascade_cost(G: nx.DiGraph, codegen_target: str, metrics_df: pd.DataFrame) -> int:
-    """Total downstream rebuild cost triggered by a codegen step.
-
-    Answers: "if this codegen changes, how much total build time does it cause?"
-    This is equivalent to rebuild_cost but highlights the codegen-specific impact.
-    """
-    return rebuild_cost(G, codegen_target, metrics_df)
-
-
 def simulate_merge(
     G: nx.DiGraph,
     targets: list[str],
@@ -322,97 +313,6 @@ def replay_git_history(
                 "rebuild_count": len(rebuild_set),
                 "build_time_ms": build_time,
                 "team": team,
-            }
-        )
-
-    return pd.DataFrame(results)
-
-
-def feature_subset_build_time(
-    G: nx.DiGraph,
-    feature_groups: pd.DataFrame,
-    group_combination: list[str],
-    target_times: dict[str, float],
-    n_cores: int,
-) -> float:
-    """Compute full build time for a given combination of enabled feature groups.
-
-    Args:
-        G: Dependency DAG.
-        feature_groups: DataFrame with (cmake_target, feature_group).
-        group_combination: List of feature group names to enable (core is always included).
-        target_times: Dict mapping target name to compile time in ms.
-        n_cores: Number of parallel build slots.
-
-    Returns:
-        Simulated wall-clock full build time in ms.
-    """
-    enabled_groups = set(group_combination) | {"core"}
-    group_map = dict(zip(feature_groups["cmake_target"], feature_groups["feature_group"]))
-
-    enabled = {t for t, g in group_map.items() if g in enabled_groups and t in G}
-
-    if not enabled:
-        return 0.0
-
-    # For a full build, all enabled targets are "modified"
-    return simulate_incremental_build(G, list(enabled), target_times, n_cores, enabled_targets=enabled)
-
-
-def sensitivity_analysis(
-    G: nx.DiGraph,
-    exe_lib_matrix: pd.DataFrame,
-    target_times: dict[str, float],
-    k_range: range,
-    n_cores: int,
-) -> pd.DataFrame:
-    """Run feature group discovery for each K and return metrics.
-
-    Args:
-        G: Dependency DAG.
-        exe_lib_matrix: Long-format executable-library matrix.
-        target_times: Dict mapping target name to compile time in ms.
-        k_range: Range of K values to evaluate.
-        n_cores: Number of parallel build slots.
-
-    Returns:
-        DataFrame with columns (k, cross_group_edges, core_size, modularity).
-    """
-    from buildanalysis.features import identify_core_libraries
-    from buildanalysis.partitioning import extract_feature_groups, hierarchical_communities
-
-    core = identify_core_libraries(exe_lib_matrix)
-
-    results = []
-    for k in k_range:
-        # Use Leiden with resolution tuned to produce ~k communities
-        # Higher resolution -> more communities
-        res = k * 0.5
-        communities = hierarchical_communities(G, resolution_range=[res])
-
-        if not communities["results"]:
-            continue
-
-        fg = extract_feature_groups(communities, core, resolution=res)
-        group_map = dict(zip(fg["cmake_target"], fg["feature_group"]))
-
-        # Count cross-group edges
-        cross_edges = 0
-        for u, v in G.edges():
-            g_u = group_map.get(u, "core")
-            g_v = group_map.get(v, "core")
-            if g_u != g_v and g_u != "core" and g_v != "core":
-                cross_edges += 1
-
-        core_size = sum(1 for g in group_map.values() if g == "core")
-        n_groups = len(set(group_map.values()))
-
-        results.append(
-            {
-                "k": k,
-                "actual_groups": n_groups,
-                "cross_group_edges": cross_edges,
-                "core_size": core_size,
             }
         )
 

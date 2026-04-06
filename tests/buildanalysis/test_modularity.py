@@ -8,9 +8,7 @@ from buildanalysis.modularity import (
     compare_community_methods,
     compute_conway_alignment,
     compute_modularity_score,
-    cut_dendrogram,
     detect_communities_louvain,
-    detect_communities_spectral,
     hierarchical_clustering,
 )
 
@@ -31,16 +29,6 @@ class TestLouvain:
         r2 = detect_communities_louvain(diamond_graph)
         merged = r1.merge(r2, on="cmake_target", suffixes=("_1", "_2"))
         assert (merged["community_1"] == merged["community_2"]).all()
-
-
-class TestSpectral:
-    def test_all_targets_assigned(self, two_community_graph):
-        result = detect_communities_spectral(two_community_graph, n_clusters=2)
-        assert set(result["cmake_target"]) == set(two_community_graph.graph.nodes())
-
-    def test_auto_k(self, two_community_graph):
-        result = detect_communities_spectral(two_community_graph)
-        assert result["community"].nunique() >= 1
 
 
 class TestModularityScore:
@@ -114,12 +102,6 @@ class TestHierarchical:
         Z, nodes = hierarchical_clustering(diamond_graph)
         # Linkage matrix has (n-1) rows and 4 columns
         assert Z.shape == (len(nodes) - 1, 4)
-
-    def test_cut_produces_right_count(self, two_community_graph):
-        Z, nodes = hierarchical_clustering(two_community_graph)
-        result = cut_dendrogram(Z, nodes, n_clusters=2)
-        assert result["community"].nunique() == 2
-        assert len(result) == len(nodes)
 
 
 class TestCompare:

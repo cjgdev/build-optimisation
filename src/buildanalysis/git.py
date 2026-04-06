@@ -161,53 +161,6 @@ def compute_ownership_concentration(
     return pd.DataFrame(rows).sort_values("gini", ascending=False).reset_index(drop=True)
 
 
-def infer_team_assignments(
-    git_log: pd.DataFrame,
-    file_to_target: pd.Series | dict,
-    min_commits: int = 10,
-) -> pd.DataFrame:
-    """Assign each target to its dominant contributor (as a team proxy)."""
-    if isinstance(file_to_target, dict):
-        file_to_target = pd.Series(file_to_target)
-
-    df = git_log[git_log["source_file"].isin(file_to_target.index)].copy()
-    df["cmake_target"] = df["source_file"].map(file_to_target)
-
-    commit_counts = df.groupby(["cmake_target", "contributor"])["commit_hash"].nunique().reset_index(name="commits")
-
-    rows = []
-    for target, group in commit_counts.groupby("cmake_target"):
-        total = int(group["commits"].sum())
-        if total < min_commits:
-            continue
-        top_idx = group["commits"].values.argmax()
-        top_contributor = group.iloc[top_idx]["contributor"]
-        top_share = float(group.iloc[top_idx]["commits"]) / total
-
-        rows.append(
-            {
-                "cmake_target": target,
-                "primary_team": top_contributor,
-                "top_contributor_share": top_share,
-                "n_contributors": len(group),
-                "total_commits": total,
-            }
-        )
-
-    if not rows:
-        return pd.DataFrame(
-            columns=[
-                "cmake_target",
-                "primary_team",
-                "top_contributor_share",
-                "n_contributors",
-                "total_commits",
-            ]
-        )
-
-    return pd.DataFrame(rows)
-
-
 def compute_file_to_target_map(file_metrics: pd.DataFrame) -> pd.Series:
     """Extract the file-to-target mapping from file_metrics."""
     deduped = file_metrics.drop_duplicates(subset="source_file", keep="first")

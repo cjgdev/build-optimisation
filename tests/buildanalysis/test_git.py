@@ -5,7 +5,6 @@ from buildanalysis.git import (
     compute_file_churn,
     compute_file_to_target_map,
     compute_ownership_concentration,
-    infer_team_assignments,
 )
 
 
@@ -99,39 +98,6 @@ class TestOwnership:
         assert (result["gini"] <= 1).all()
         assert (result["top_contributor_share"] > 0).all()
         assert (result["top_contributor_share"] <= 1).all()
-
-
-class TestInferTeamAssignments:
-    def test_basic_assignment(self, synthetic_git_log):
-        file_to_target = pd.Series(
-            {
-                "/src/a.cpp": "target_a",
-                "/src/b.cpp": "target_a",
-                "/src/c.cpp": "target_b",
-                "/src/d.cpp": "target_c",
-            }
-        )
-        result = infer_team_assignments(synthetic_git_log, file_to_target, min_commits=1)
-        assert len(result) > 0
-        assert "primary_team" in result.columns
-        assert "top_contributor_share" in result.columns
-
-    def test_min_commits_threshold(self, synthetic_git_log):
-        file_to_target = pd.Series(
-            {
-                "/src/a.cpp": "target_a",
-                "/src/b.cpp": "target_a",
-                "/src/c.cpp": "target_b",
-                "/src/d.cpp": "target_c",
-            }
-        )
-        result = infer_team_assignments(synthetic_git_log, file_to_target, min_commits=100)
-        assert len(result) == 0
-
-    def test_empty_when_no_matching_files(self, synthetic_git_log):
-        file_to_target = pd.Series({"/nonexistent.cpp": "t"})
-        result = infer_team_assignments(synthetic_git_log, file_to_target, min_commits=1)
-        assert len(result) == 0
 
 
 class TestFileToTargetMap:

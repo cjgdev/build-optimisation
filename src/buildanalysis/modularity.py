@@ -8,9 +8,8 @@ from statistics import median
 import networkx as nx
 import numpy as np
 import pandas as pd
-from scipy.cluster.hierarchy import fcluster, linkage
+from scipy.cluster.hierarchy import linkage
 from scipy.spatial.distance import squareform
-from sklearn.cluster import SpectralClustering
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
 
 from buildanalysis.types import BuildGraph
@@ -27,43 +26,6 @@ def detect_communities_louvain(bg: BuildGraph, resolution: float = 1.0) -> pd.Da
             rows.append({"cmake_target": target, "community": idx})
 
     return pd.DataFrame(rows)
-
-
-def detect_communities_spectral(bg: BuildGraph, n_clusters: int | None = None) -> pd.DataFrame:
-    """Detect communities using spectral clustering on the graph Laplacian."""
-    from scipy.sparse import csgraph
-    from scipy.sparse.linalg import eigsh
-
-    undirected = bg.graph.to_undirected()
-    nodes = list(undirected.nodes())
-    n = len(nodes)
-    adj_matrix = nx.to_numpy_array(undirected, nodelist=nodes)
-
-    if n_clusters is None:
-        max_k = min(10, n - 1)
-        laplacian = csgraph.laplacian(adj_matrix, normed=True)
-        n_components = min(max_k + 1, n - 1)
-        eigenvalues = eigsh(laplacian, k=n_components, which="SM", return_eigenvectors=False)
-        eigenvalues = np.sort(eigenvalues)
-        gaps = np.diff(eigenvalues[1:])
-        n_clusters = int(np.argmax(gaps)) + 2
-
-    n_clusters = min(n_clusters, n)
-
-    clustering = SpectralClustering(
-        n_clusters=n_clusters,
-        affinity="precomputed",
-        random_state=42,
-    )
-    # Use adjacency matrix as precomputed affinity
-    labels = clustering.fit_predict(adj_matrix)
-
-    return pd.DataFrame(
-        {
-            "cmake_target": nodes,
-            "community": labels,
-        }
-    )
 
 
 def hierarchical_clustering(bg: BuildGraph, method: str = "ward") -> tuple[np.ndarray, list[str]]:
@@ -93,20 +55,6 @@ def hierarchical_clustering(bg: BuildGraph, method: str = "ward") -> tuple[np.nd
     Z = linkage(condensed, method=method)
 
     return Z, nodes
-
-
-def cut_dendrogram(Z: np.ndarray, nodes: list[str], n_clusters: int) -> pd.DataFrame:
-    """Cut the dendrogram at a level producing n_clusters groups."""
-    labels = fcluster(Z, t=n_clusters, criterion="maxclust")
-    # Convert to 0-indexed
-    labels = labels - 1
-
-    return pd.DataFrame(
-        {
-            "cmake_target": nodes,
-            "community": labels,
-        }
-    )
 
 
 def compute_modularity_score(bg: BuildGraph, communities: pd.DataFrame) -> dict:

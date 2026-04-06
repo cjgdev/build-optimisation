@@ -317,11 +317,22 @@ def validate_simulation(
     observed: pd.DataFrame,
     tolerance_pct: float = 10,
 ) -> dict:
-    """Compare a simulated build schedule against observed data."""
+    """Compare a simulated build schedule against observed data.
+
+    The simulated schedule (from ``simulate_build``) uses ``start_ms`` /
+    ``end_ms`` columns.  The observed schedule (``build_schedule.parquet``)
+    may use ``start_time_ms`` / ``end_time_ms`` instead — both conventions
+    are handled transparently.
+    """
     sim_wall = simulated["end_ms"].max()
 
+    # Normalise observed column names to start_ms / end_ms
+    obs = observed.copy()
+    if "start_time_ms" in obs.columns and "start_ms" not in obs.columns:
+        obs = obs.rename(columns={"start_time_ms": "start_ms", "end_time_ms": "end_ms"})
+
     # Aggregate observed to target level
-    obs_by_target = observed.groupby("cmake_target").agg(
+    obs_by_target = obs.groupby("cmake_target").agg(
         start_ms=("start_ms", "min"),
         end_ms=("end_ms", "max"),
     )
@@ -334,7 +345,7 @@ def validate_simulation(
     sim_total_work = (simulated["end_ms"] - simulated["start_ms"]).sum()
     sim_util = sim_total_work / (sim_wall * sim_n_cores) if sim_wall > 0 and sim_n_cores > 0 else 0.0
 
-    obs_n_cores = observed["core"].nunique() if "core" in observed.columns else 1
+    obs_n_cores = obs["core"].nunique() if "core" in obs.columns else 1
     obs_total_work = (obs_by_target["end_ms"] - obs_by_target["start_ms"]).sum()
     obs_util = obs_total_work / (obs_wall * obs_n_cores) if obs_wall > 0 and obs_n_cores > 0 else 0.0
 
