@@ -147,10 +147,12 @@ def main() -> None:
             ]:
                 agg[k] = 0
             for k in [
-                "gcc_parse_time_sum_ms",
-                "gcc_template_time_sum_ms",
-                "gcc_codegen_phase_sum_ms",
-                "gcc_optimization_time_sum_ms",
+                "compiler_parse_time_sum_ms",
+                "compiler_template_time_sum_ms",
+                "compiler_codegen_phase_sum_ms",
+                "compiler_optimization_time_sum_ms",
+                "compiler_total_usr_sum_ms",
+                "compiler_total_sys_sum_ms",
             ]:
                 agg[k] = 0.0
             for k in [

@@ -1,9 +1,10 @@
-"""Tests for ftime-report and header tree parsers from step 03."""
+"""Tests for header tree parser from step 03 and detect_and_parse integration."""
 
 import importlib
 
+from buildanalysis.compiler_timing import detect_and_parse
+
 _mod = importlib.import_module("scripts.collect.03_instrumented_build")
-parse_ftime_report_text = _mod.parse_ftime_report_text
 parse_header_tree_text = _mod.parse_header_tree_text
 
 
@@ -27,30 +28,23 @@ SAMPLE_HEADER_OUTPUT = """\
 """
 
 
-class TestParseTimingReport:
-    def test_extracts_phases(self):
-        result = parse_ftime_report_text(SAMPLE_FTIME_REPORT)
-        assert "phase parsing" in result["phases"]
-        assert "phase opt and generate" in result["phases"]
+class TestDetectAndParseIntegration:
+    """Smoke tests verifying detect_and_parse works from the collect script context."""
 
-    def test_wall_time_values(self):
-        result = parse_ftime_report_text(SAMPLE_FTIME_REPORT)
-        assert result["phases"]["phase parsing"] == 0.13
-        assert result["phases"]["phase opt and generate"] == 0.72
+    def test_gcc_report_detected(self):
+        report = detect_and_parse(SAMPLE_FTIME_REPORT)
+        assert report is not None
+        assert report.compiler == "gcc"
+        assert report.wall_total_ms == 860
 
-    def test_total(self):
-        result = parse_ftime_report_text(SAMPLE_FTIME_REPORT)
-        assert result["phases"]["TOTAL"] == 0.86
-        assert result["wall_total_ms"] == 860
-
-    def test_empty_input(self):
-        result = parse_ftime_report_text("")
-        assert result["phases"] == {}
-        assert result["wall_total_ms"] == 0
-
-    def test_no_ftime_output(self):
-        result = parse_ftime_report_text("some random stderr output\nwarning: something\n")
-        assert result["phases"] == {}
+    def test_to_dict_has_expected_keys(self):
+        report = detect_and_parse(SAMPLE_FTIME_REPORT)
+        assert report is not None
+        d = report.to_dict()
+        assert "compiler" in d
+        assert "phases" in d
+        assert "total" in d
+        assert "wall_total_ms" in d
 
 
 class TestParseHeaderTree:

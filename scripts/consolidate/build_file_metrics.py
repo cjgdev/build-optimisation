@@ -19,11 +19,49 @@ import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from buildanalysis.compiler_timing import CompilerTimingReport
 from buildanalysis.config import Config
 from buildanalysis.metrics import FILE_METRICS_SCHEMA
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def _map_timing_to_columns(source_file: str, data: dict) -> dict:
+    """Map a CompilerTimingReport dict to the flat file_metrics columns.
+
+    Dispatches on ``data["compiler"]`` to handle GCC vs Clang phase names.
+    Falls back to legacy format (flat phase-name → wall-seconds) for
+    backward compatibility with older ftime_report.json files.
+    """
+    report = CompilerTimingReport.from_dict(data)
+    total = report.total
+
+    if report.compiler == "clang":
+        phases = report.phases
+        parse_wall = phases["frontend"].wall if "frontend" in phases else 0.0
+        template_wall = 0.0  # Clang folds template instantiation into frontend
+        codegen_wall = phases["codegen"].wall if "codegen" in phases else 0.0
+        optimization_wall = phases["optimizer"].wall if "optimizer" in phases else 0.0
+    else:
+        # GCC (or unknown — treat as GCC)
+        phases = report.phases
+        parse_wall = phases["phase parsing"].wall if "phase parsing" in phases else 0.0
+        template_wall = phases["phase lang. deferred"].wall if "phase lang. deferred" in phases else 0.0
+        opt_gen_wall = phases["phase opt and generate"].wall if "phase opt and generate" in phases else 0.0
+        codegen_wall = opt_gen_wall
+        optimization_wall = opt_gen_wall
+
+    return {
+        "source_file": source_file,
+        "compiler_parse_time_ms": parse_wall * 1000,
+        "compiler_template_instantiation_ms": template_wall * 1000,
+        "compiler_codegen_time_ms": codegen_wall * 1000,
+        "compiler_optimization_time_ms": optimization_wall * 1000,
+        "compiler_total_time_ms": report.wall_total_ms,
+        "compiler_total_usr_ms": total.usr * 1000,
+        "compiler_total_sys_ms": total.sys * 1000,
+    }
 
 
 def load_json(path: Path) -> dict | list:
@@ -76,33 +114,23 @@ def main() -> None:
     else:
         spine["compile_time_ms"] = pd.NA
 
-    # ftime report
+    # ftime report (supports both GCC and Clang via CompilerTimingReport)
     ftime_data = load_json(raw / "ftime_report.json")
     ftime_rows = []
     for source_file, data in ftime_data.items():
-        phases = data.get("phases", {})
-        ftime_rows.append(
-            {
-                "source_file": source_file,
-                "gcc_parse_time_ms": phases.get("phase parsing", 0) * 1000,
-                "gcc_template_instantiation_ms": phases.get("phase lang. deferred", 0) * 1000,
-                # GCC's -ftime-report reports optimization and code generation as a single
-                # "phase opt and generate" phase; both columns are sourced from the same value.
-                "gcc_codegen_time_ms": phases.get("phase opt and generate", 0) * 1000,
-                "gcc_optimization_time_ms": phases.get("phase opt and generate", 0) * 1000,
-                "gcc_total_time_ms": data.get("wall_total_ms", 0),
-            }
-        )
+        ftime_rows.append(_map_timing_to_columns(source_file, data))
     if ftime_rows:
         ftime_df = pd.DataFrame(ftime_rows)
         spine = spine.merge(ftime_df, on="source_file", how="left")
     else:
         for col in [
-            "gcc_parse_time_ms",
-            "gcc_template_instantiation_ms",
-            "gcc_codegen_time_ms",
-            "gcc_optimization_time_ms",
-            "gcc_total_time_ms",
+            "compiler_parse_time_ms",
+            "compiler_template_instantiation_ms",
+            "compiler_codegen_time_ms",
+            "compiler_optimization_time_ms",
+            "compiler_total_time_ms",
+            "compiler_total_usr_ms",
+            "compiler_total_sys_ms",
         ]:
             spine[col] = pd.NA
 

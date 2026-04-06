@@ -29,11 +29,13 @@ FILE_METRICS_SCHEMA = pa.schema(
         ("is_generated", pa.bool_()),
         ("language", pa.string()),
         ("compile_time_ms", pa.int64()),
-        ("gcc_parse_time_ms", pa.float64()),
-        ("gcc_template_instantiation_ms", pa.float64()),
-        ("gcc_codegen_time_ms", pa.float64()),
-        ("gcc_optimization_time_ms", pa.float64()),
-        ("gcc_total_time_ms", pa.float64()),
+        ("compiler_parse_time_ms", pa.float64()),
+        ("compiler_template_instantiation_ms", pa.float64()),
+        ("compiler_codegen_time_ms", pa.float64()),
+        ("compiler_optimization_time_ms", pa.float64()),
+        ("compiler_total_time_ms", pa.float64()),
+        ("compiler_total_usr_ms", pa.float64()),
+        ("compiler_total_sys_ms", pa.float64()),
         ("code_lines", pa.int64()),
         ("blank_lines", pa.int64()),
         ("comment_lines", pa.int64()),
@@ -87,11 +89,13 @@ TARGET_METRICS_SCHEMA = pa.schema(
         # Compile time metrics (generated files)
         ("codegen_compile_time_sum_ms", pa.int64()),
         ("codegen_compile_time_max_ms", pa.int64()),
-        # GCC phase breakdown
-        ("gcc_parse_time_sum_ms", pa.float64()),
-        ("gcc_template_time_sum_ms", pa.float64()),
-        ("gcc_codegen_phase_sum_ms", pa.float64()),
-        ("gcc_optimization_time_sum_ms", pa.float64()),
+        # Compiler phase breakdown
+        ("compiler_parse_time_sum_ms", pa.float64()),
+        ("compiler_template_time_sum_ms", pa.float64()),
+        ("compiler_codegen_phase_sum_ms", pa.float64()),
+        ("compiler_optimization_time_sum_ms", pa.float64()),
+        ("compiler_total_usr_sum_ms", pa.float64()),
+        ("compiler_total_sys_sum_ms", pa.float64()),
         # Header metrics
         ("header_depth_max", pa.int64()),
         ("header_depth_mean", pa.float64()),
@@ -239,11 +243,13 @@ def aggregate_file_metrics_for_target(df: pd.DataFrame) -> dict:
         # Compile time (generated)
         "codegen_compile_time_sum_ms": safe_sum(generated["compile_time_ms"]),
         "codegen_compile_time_max_ms": safe_max(generated["compile_time_ms"]),
-        # GCC phase breakdown
-        "gcc_parse_time_sum_ms": float(df["gcc_parse_time_ms"].sum()),
-        "gcc_template_time_sum_ms": float(df["gcc_template_instantiation_ms"].sum()),
-        "gcc_codegen_phase_sum_ms": float(df["gcc_codegen_time_ms"].sum()),
-        "gcc_optimization_time_sum_ms": float(df["gcc_optimization_time_ms"].sum()),
+        # Compiler phase breakdown
+        "compiler_parse_time_sum_ms": float(df["compiler_parse_time_ms"].sum()),
+        "compiler_template_time_sum_ms": float(df["compiler_template_instantiation_ms"].sum()),
+        "compiler_codegen_phase_sum_ms": float(df["compiler_codegen_time_ms"].sum()),
+        "compiler_optimization_time_sum_ms": float(df["compiler_optimization_time_ms"].sum()),
+        "compiler_total_usr_sum_ms": float(df["compiler_total_usr_ms"].sum()),
+        "compiler_total_sys_sum_ms": float(df["compiler_total_sys_ms"].sum()),
         # Header metrics
         "header_depth_max": safe_max(df["header_max_depth"]),
         "header_depth_mean": float(df["header_max_depth"].mean()) if not df["header_max_depth"].isna().all() else 0.0,

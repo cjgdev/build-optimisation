@@ -55,66 +55,68 @@ consolidation scripts and stored per-snapshot.
 |---|---|---|---|---|---|
 | 5 | `compile_time_ms` | int64 | no | ninja_log.csv | Wall-clock compile duration in milliseconds |
 
-#### GCC Phase Breakdown
+#### Compiler Phase Breakdown
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 6 | `gcc_parse_time_ms` | float64 | yes | ftime_report.json | GCC parsing phase time (ms) |
-| 7 | `gcc_template_instantiation_ms` | float64 | yes | ftime_report.json | GCC template instantiation time (ms) |
-| 8 | `gcc_codegen_time_ms` | float64 | yes | ftime_report.json | GCC opt-and-generate phase time (ms) |
-| 9 | `gcc_optimization_time_ms` | float64 | yes | ftime_report.json | Same phase as codegen — identical values |
-| 10 | `gcc_total_time_ms` | float64 | yes | ftime_report.json | GCC total wall-clock time (ms) |
+| 6 | `compiler_parse_time_ms` | float64 | yes | ftime_report.json | Parsing phase time (ms). GCC: "phase parsing"; Clang: "Front end" |
+| 7 | `compiler_template_instantiation_ms` | float64 | yes | ftime_report.json | Template instantiation time (ms). GCC: "phase lang. deferred"; Clang: 0 (folded into frontend) |
+| 8 | `compiler_codegen_time_ms` | float64 | yes | ftime_report.json | Code generation phase time (ms). GCC: "phase opt and generate"; Clang: "Machine code generation" |
+| 9 | `compiler_optimization_time_ms` | float64 | yes | ftime_report.json | Optimisation phase time (ms). GCC: same as codegen; Clang: "Optimizer" |
+| 10 | `compiler_total_time_ms` | float64 | yes | ftime_report.json | Total wall-clock time (ms) |
+| 11 | `compiler_total_usr_ms` | float64 | yes | ftime_report.json | Total user-space CPU time (ms) |
+| 12 | `compiler_total_sys_ms` | float64 | yes | ftime_report.json | Total system CPU time (ms) |
 
-**Note:** Fields 8 and 9 are derived from the same GCC phase. Do not use both
-in a regression model — they are perfectly correlated.
+**Note:** For GCC, fields 8 and 9 are derived from the same phase ("phase opt
+and generate") — do not use both in a regression model. For Clang, they differ.
 
 #### Source Lines of Code
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 11 | `code_lines` | int64 | no | sloc.csv | Non-blank, non-comment lines (SLOC) |
-| 12 | `blank_lines` | int64 | no | sloc.csv | Blank lines |
-| 13 | `comment_lines` | int64 | no | sloc.csv | Comment lines |
-| 14 | `source_size_bytes` | int64 | no | sloc.csv | Raw file size in bytes |
+| 13 | `code_lines` | int64 | no | sloc.csv | Non-blank, non-comment lines (SLOC) |
+| 14 | `blank_lines` | int64 | no | sloc.csv | Blank lines |
+| 15 | `comment_lines` | int64 | no | sloc.csv | Comment lines |
+| 16 | `source_size_bytes` | int64 | no | sloc.csv | Raw file size in bytes |
 
 #### Header Inclusion
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 15 | `header_max_depth` | int64 | yes | header_data.json | Maximum nesting depth of #include directives |
-| 16 | `unique_headers` | int64 | yes | header_data.json | Distinct headers included (transitively) |
-| 17 | `total_includes` | int64 | yes | header_data.json | Total #include directive count in the TU |
-| 18 | `header_tree` | large_utf8 | yes | header_data.json | JSON array of `[depth, path]` pairs — full include tree |
+| 17 | `header_max_depth` | int64 | yes | header_data.json | Maximum nesting depth of #include directives |
+| 18 | `unique_headers` | int64 | yes | header_data.json | Distinct headers included (transitively) |
+| 19 | `total_includes` | int64 | yes | header_data.json | Total #include directive count in the TU |
+| 20 | `header_tree` | large_utf8 | yes | header_data.json | JSON array of `[depth, path]` pairs — full include tree |
 
 #### Preprocessed and Object Sizes
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 19 | `preprocessed_bytes` | int64 | yes | preprocessed_size.csv | Size of preprocessed output (`-E`) in bytes |
-| 20 | `object_size_bytes` | int64 | yes | object_files.csv | Size of compiled `.o` file in bytes |
+| 21 | `preprocessed_bytes` | int64 | yes | preprocessed_size.csv | Size of preprocessed output (`-E`) in bytes |
+| 22 | `object_size_bytes` | int64 | yes | object_files.csv | Size of compiled `.o` file in bytes |
 
 #### Git History
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 21 | `git_commit_count` | int64 | no | git_history_summary.csv | Total commits touching this file |
-| 22 | `git_lines_added` | int64 | no | git_history_summary.csv | Total lines added across all commits |
-| 23 | `git_lines_deleted` | int64 | no | git_history_summary.csv | Total lines deleted across all commits |
-| 24 | `git_churn` | int64 | no | git_history_summary.csv | `lines_added + lines_deleted` |
-| 25 | `git_distinct_authors` | int64 | no | git_history_summary.csv | Unique contributor count |
-| 26 | `git_last_change_date` | string | yes | git_history_summary.csv | ISO 8601 timestamp of most recent commit |
-| 27 | `git_first_change_date` | string | yes | Stage 0a | ISO 8601 timestamp of earliest commit |
+| 23 | `git_commit_count` | int64 | no | git_history_summary.csv | Total commits touching this file |
+| 24 | `git_lines_added` | int64 | no | git_history_summary.csv | Total lines added across all commits |
+| 25 | `git_lines_deleted` | int64 | no | git_history_summary.csv | Total lines deleted across all commits |
+| 26 | `git_churn` | int64 | no | git_history_summary.csv | `lines_added + lines_deleted` |
+| 27 | `git_distinct_authors` | int64 | no | git_history_summary.csv | Unique contributor count |
+| 28 | `git_last_change_date` | string | yes | git_history_summary.csv | ISO 8601 timestamp of most recent commit |
+| 29 | `git_first_change_date` | string | yes | Stage 0a | ISO 8601 timestamp of earliest commit |
 
 **Note:** All git fields are zeroed for generated files (`is_generated == true`).
-Field 27 is added by Stage 0a.
+Field 29 is added by Stage 0a.
 
 #### Derived Columns
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 28 | `expansion_ratio` | float64 | yes | Computed | `preprocessed_bytes / source_size_bytes` |
-| 29 | `compile_rate_lines_per_sec` | float64 | yes | Computed | `code_lines / (compile_time_ms / 1000)` |
-| 30 | `object_efficiency` | float64 | yes | Computed | `object_size_bytes / code_lines` |
+| 30 | `expansion_ratio` | float64 | yes | Computed | `preprocessed_bytes / source_size_bytes` |
+| 31 | `compile_rate_lines_per_sec` | float64 | yes | Computed | `code_lines / (compile_time_ms / 1000)` |
+| 32 | `object_efficiency` | float64 | yes | Computed | `object_size_bytes / code_lines` |
 
 ---
 
@@ -171,81 +173,83 @@ Field 27 is added by Stage 0a.
 | 22 | `codegen_compile_time_sum_ms` | int64 | no | Aggregated | Sum for generated files |
 | 23 | `codegen_compile_time_max_ms` | int64 | no | Aggregated | Max for generated files |
 
-#### GCC Phase Breakdown (Aggregated)
+#### Compiler Phase Breakdown (Aggregated)
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 24 | `gcc_parse_time_sum_ms` | float64 | yes | Aggregated | Sum of parse-phase times |
-| 25 | `gcc_template_time_sum_ms` | float64 | yes | Aggregated | Sum of template-instantiation times |
-| 26 | `gcc_codegen_phase_sum_ms` | float64 | yes | Aggregated | Sum of opt-and-generate times |
-| 27 | `gcc_optimization_time_sum_ms` | float64 | yes | Aggregated | Sum of optimisation times |
+| 24 | `compiler_parse_time_sum_ms` | float64 | yes | Aggregated | Sum of parse-phase times |
+| 25 | `compiler_template_time_sum_ms` | float64 | yes | Aggregated | Sum of template-instantiation times |
+| 26 | `compiler_codegen_phase_sum_ms` | float64 | yes | Aggregated | Sum of code-generation-phase times |
+| 27 | `compiler_optimization_time_sum_ms` | float64 | yes | Aggregated | Sum of optimisation times |
+| 28 | `compiler_total_usr_sum_ms` | float64 | yes | Aggregated | Sum of user-space CPU times |
+| 29 | `compiler_total_sys_sum_ms` | float64 | yes | Aggregated | Sum of system CPU times |
 
 #### Header Metrics (Aggregated)
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 28 | `header_depth_max` | int64 | yes | Aggregated | Max include depth across files |
-| 29 | `header_depth_mean` | float64 | yes | Aggregated | Mean include depth |
-| 30 | `unique_headers_total` | int64 | yes | Aggregated | Sum of per-file unique_headers (approximation) |
-| 31 | `total_includes_sum` | int64 | yes | Aggregated | Sum of per-file total_includes |
+| 30 | `header_depth_max` | int64 | yes | Aggregated | Max include depth across files |
+| 31 | `header_depth_mean` | float64 | yes | Aggregated | Mean include depth |
+| 32 | `unique_headers_total` | int64 | yes | Aggregated | Sum of per-file unique_headers (approximation) |
+| 33 | `total_includes_sum` | int64 | yes | Aggregated | Sum of per-file total_includes |
 
-**Note:** Field 30 is a sum approximation, not a true set union across files.
+**Note:** Field 32 is a sum approximation, not a true set union across files.
 
 #### Preprocessed Size (Aggregated)
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 32 | `preprocessed_bytes_total` | int64 | yes | Aggregated | Sum of preprocessed bytes |
-| 33 | `preprocessed_bytes_mean` | float64 | yes | Aggregated | Mean preprocessed bytes per file |
-| 34 | `expansion_ratio_mean` | float64 | yes | Aggregated | Mean expansion ratio across files |
+| 34 | `preprocessed_bytes_total` | int64 | yes | Aggregated | Sum of preprocessed bytes |
+| 35 | `preprocessed_bytes_mean` | float64 | yes | Aggregated | Mean preprocessed bytes per file |
+| 36 | `expansion_ratio_mean` | float64 | yes | Aggregated | Mean expansion ratio across files |
 
 #### Object Files (Aggregated)
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 35 | `object_size_total_bytes` | int64 | yes | Aggregated | Sum of `.o` file sizes |
-| 36 | `object_file_count` | int64 | no | Aggregated | Count of files with non-null object_size |
+| 37 | `object_size_total_bytes` | int64 | yes | Aggregated | Sum of `.o` file sizes |
+| 38 | `object_file_count` | int64 | no | Aggregated | Count of files with non-null object_size |
 
 #### Build Step Timing
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 37 | `codegen_time_ms` | int64 | no | ninja_log.csv | Total code-generation step time |
-| 38 | `archive_time_ms` | int64 | no | ninja_log.csv | Total archive/static-link time |
-| 39 | `link_time_ms` | int64 | no | ninja_log.csv | Total link step time |
-| 40 | `total_build_time_ms` | int64 | no | Computed | `compile + codegen + archive + link` |
+| 39 | `codegen_time_ms` | int64 | no | ninja_log.csv | Total code-generation step time |
+| 40 | `archive_time_ms` | int64 | no | ninja_log.csv | Total archive/static-link time |
+| 41 | `link_time_ms` | int64 | no | ninja_log.csv | Total link step time |
+| 42 | `total_build_time_ms` | int64 | no | Computed | `compile + codegen + archive + link` |
 
 #### Git Activity (Aggregated)
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 41 | `git_commit_count_total` | int64 | no | Aggregated | Sum of per-file commit counts (authored only) |
-| 42 | `git_churn_total` | int64 | no | Aggregated | Sum of per-file churn (authored only) |
-| 43 | `git_distinct_authors` | int64 | no | Aggregated | Max distinct_authors across authored files |
-| 44 | `git_hotspot_file_count` | int64 | no | Computed | Files with commits > mean + std_dev |
+| 43 | `git_commit_count_total` | int64 | no | Aggregated | Sum of per-file commit counts (authored only) |
+| 44 | `git_churn_total` | int64 | no | Aggregated | Sum of per-file churn (authored only) |
+| 45 | `git_distinct_authors` | int64 | no | Aggregated | Max distinct_authors across authored files |
+| 46 | `git_hotspot_file_count` | int64 | no | Computed | Files with commits > mean + std_dev |
 
 #### Dependency Graph Metrics
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 45 | `direct_dependency_count` | int64 | no | Computed | Out-degree (direct deps) |
-| 46 | `transitive_dependency_count` | int64 | no | Computed | Non-direct transitive deps |
-| 47 | `total_dependency_count` | int64 | no | Computed | `direct + transitive` |
-| 48 | `direct_dependant_count` | int64 | no | Computed | In-degree (direct dependants) |
-| 49 | `transitive_dependant_count` | int64 | no | Computed | All transitive dependants |
-| 50 | `topological_depth` | int64 | no | Computed | Longest path from any ancestor |
-| 51 | `critical_path_contribution_ms` | int64 | no | Notebook 03 | Time on critical path (0 if not on path) |
-| 52 | `fan_in` | int64 | no | Alias | Same as `direct_dependant_count` |
-| 53 | `fan_out` | int64 | no | Alias | Same as `direct_dependency_count` |
-| 54 | `betweenness_centrality` | float64 | no | Computed | NetworkX betweenness centrality |
+| 47 | `direct_dependency_count` | int64 | no | Computed | Out-degree (direct deps) |
+| 48 | `transitive_dependency_count` | int64 | no | Computed | Non-direct transitive deps |
+| 49 | `total_dependency_count` | int64 | no | Computed | `direct + transitive` |
+| 50 | `direct_dependant_count` | int64 | no | Computed | In-degree (direct dependants) |
+| 51 | `transitive_dependant_count` | int64 | no | Computed | All transitive dependants |
+| 52 | `topological_depth` | int64 | no | Computed | Longest path from any ancestor |
+| 53 | `critical_path_contribution_ms` | int64 | no | Notebook 03 | Time on critical path (0 if not on path) |
+| 54 | `fan_in` | int64 | no | Alias | Same as `direct_dependant_count` |
+| 55 | `fan_out` | int64 | no | Alias | Same as `direct_dependency_count` |
+| 56 | `betweenness_centrality` | float64 | no | Computed | NetworkX betweenness centrality |
 
 #### File Lists (JSON)
 
 | # | Field | Type | Nullable | Source | Description |
 |---|---|---|---|---|---|
-| 55 | `source_files` | large_utf8 | yes | cmake_file_api | JSON array of source file paths |
-| 56 | `generated_files` | large_utf8 | yes | cmake_file_api | JSON array of generated file paths |
-| 57 | `output_files` | large_utf8 | yes | cmake_file_api | JSON array of artifact paths |
+| 57 | `source_files` | large_utf8 | yes | cmake_file_api | JSON array of source file paths |
+| 58 | `generated_files` | large_utf8 | yes | cmake_file_api | JSON array of generated file paths |
+| 59 | `output_files` | large_utf8 | yes | cmake_file_api | JSON array of artifact paths |
 
 ---
 

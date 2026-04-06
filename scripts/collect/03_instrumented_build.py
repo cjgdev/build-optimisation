@@ -3,10 +3,11 @@
 
 Runs ninja with the build tree configured in step 1 (which includes
 -ftime-report, -H, and the capture_stderr.sh wrapper). Parses the
-captured per-file stderr logs for GCC timing data and header trees.
+captured per-file stderr logs for compiler timing data (GCC or Clang)
+and header trees.
 
 Outputs:
-    - data/raw/ftime_report.json   (GCC phase timing per file)
+    - data/raw/ftime_report.json   (compiler phase timing per file)
     - data/raw/header_data.json    (header inclusion data per file)
 """
 
@@ -25,56 +26,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+from buildanalysis.compiler_timing import detect_and_parse
 from buildanalysis.config import Config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# GCC -ftime-report phase line pattern
-# Example: " phase parsing                 :   0.12 ( 14%)   0.01 ( 25%)   0.13 ( 14%)  8027 kB ( 10%)"
-FTIME_RE = re.compile(
-    r"^\s*(.+?)\s*:\s+"
-    r"(\d+\.\d+)\s+\(\s*\d+%\)\s+"  # usr
-    r"(\d+\.\d+)\s+\(\s*\d+%\)\s+"  # sys
-    r"(\d+\.\d+)\s+\(\s*\d+%\)\s+"  # wall
-    r"(\d+)\s+kB"  # GGC memory
-)
-FTIME_TOTAL_RE = re.compile(
-    r"^\s*TOTAL\s*:\s+"
-    r"(\d+\.\d+)\s+"  # usr
-    r"(\d+\.\d+)\s+"  # sys
-    r"(\d+\.\d+)\s+"  # wall
-)
-
 # GCC -H header inclusion line: dots followed by a path
 HEADER_RE = re.compile(r"^(\.+)\s+(.+)$")
-
-
-def parse_ftime_report_text(text: str) -> dict:
-    """Parse GCC -ftime-report output from stderr text.
-
-    Returns dict with 'phases' (name -> wall_seconds) and 'wall_total_ms'.
-    """
-    phases: dict[str, float] = {}
-
-    for line in text.splitlines():
-        total_match = FTIME_TOTAL_RE.match(line)
-        if total_match:
-            phases["TOTAL"] = float(total_match.group(3))
-            continue
-
-        match = FTIME_RE.match(line)
-        if match:
-            phase_name = match.group(1).strip()
-            wall_time = float(match.group(4))
-            phases[phase_name] = wall_time
-
-    wall_total_ms = int(phases.get("TOTAL", 0) * 1000)
-
-    return {
-        "phases": phases,
-        "wall_total_ms": wall_total_ms,
-    }
 
 
 def parse_header_tree_text(text: str) -> dict:
@@ -183,9 +142,9 @@ def main() -> None:
     for log_path, source_file in log_map.items():
         text = Path(log_path).read_text(errors="replace")
 
-        ftime = parse_ftime_report_text(text)
-        if ftime["phases"]:
-            ftime_data[source_file] = ftime
+        report = detect_and_parse(text)
+        if report is not None:
+            ftime_data[source_file] = report.to_dict()
 
         headers = parse_header_tree_text(text)
         if headers["total_includes"] > 0:

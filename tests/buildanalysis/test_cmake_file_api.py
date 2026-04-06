@@ -334,18 +334,14 @@ class TestNonTargetLinkLibraries:
         assert "app" in codemodel.targets
 
     def test_non_target_items_do_not_create_edges(self, codemodel: CodeModel):
-        app_link_edges = [
-            e for e in codemodel.edges if e.source_target == "app" and e.dependency_type == "link"
-        ]
+        app_link_edges = [e for e in codemodel.edges if e.source_target == "app" and e.dependency_type == "link"]
         dest_targets = {e.dest_target for e in app_link_edges}
         # -lpthread and /usr/lib/libz.so should NOT appear as edge destinations
         assert "-lpthread" not in dest_targets
         assert "/usr/lib/libz.so" not in dest_targets
 
     def test_target_link_edges_still_present(self, codemodel: CodeModel):
-        app_link_edges = [
-            e for e in codemodel.edges if e.source_target == "app" and e.dependency_type == "link"
-        ]
+        app_link_edges = [e for e in codemodel.edges if e.source_target == "app" and e.dependency_type == "link"]
         dest_targets = {e.dest_target for e in app_link_edges}
         assert "engine" in dest_targets
         assert "logging" in dest_targets
