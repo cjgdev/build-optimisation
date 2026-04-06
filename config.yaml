@@ -7,9 +7,32 @@ build_dir: ./data/builds/main
 raw_data_dir: ./data/raw
 processed_data_dir: ./data/processed
 
+# CMake binary (absolute path, optional — defaults to system "cmake")
+# cmake: /opt/cmake/bin/cmake
+
 # Compiler (absolute paths)
 cc: /usr/bin/cc
 cxx: /usr/bin/c++
+
+# Binutils paths (optional — absolute paths; omit any entry to use toolchain default)
+# binutils:
+#   ar: /usr/bin/ar
+#   ranlib: /usr/bin/ranlib
+#   nm: /usr/bin/nm
+#   strip: /usr/bin/strip
+#   objdump: /usr/bin/objdump
+#   objcopy: /usr/bin/objcopy
+#   readelf: /usr/bin/readelf
+#   ld: /usr/bin/ld
+
+# Environment variables for cmake/build subprocesses.
+# Most variables override the inherited environment.
+# PATH is special: its value is prepended to the existing PATH.
+# env:
+#   PATH:                    # string or list; prepended to existing PATH
+#     - /opt/toolchain/bin
+#     - /opt/cmake/bin
+#   AWS_REGION: "eu-west-2"  # all other variables override the inherited value
 
 # External dependency directories
 cmake_prefix_path: []

@@ -1,5 +1,6 @@
 """Tests for buildanalysis.config."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -35,7 +36,7 @@ def valid_config(tmp_path: Path) -> Path:
 def toolchain_template(tmp_path: Path) -> Path:
     """Write a toolchain template and return its path."""
     tmpl = tmp_path / "toolchain.cmake"
-    tmpl.write_text('set(CMAKE_C_COMPILER   "@CC@")\nset(CMAKE_CXX_COMPILER "@CXX@")\n')
+    tmpl.write_text('set(CMAKE_C_COMPILER   "@CC@")\nset(CMAKE_CXX_COMPILER "@CXX@")\n@BINUTILS_LINES@\n')
     return tmpl
 
 
@@ -169,3 +170,194 @@ class TestPreprocessWorkers:
         )
         cfg = Config.from_yaml(config_path)
         assert cfg.preprocess_workers >= 1
+
+
+def _minimal_config(**overrides: object) -> dict[str, object]:
+    """Return a minimal valid config dict, with optional overrides merged in."""
+    base: dict[str, object] = {"source_dir": "/tmp/src", "cc": "/usr/bin/gcc", "cxx": "/usr/bin/g++"}
+    base.update(overrides)
+    return base
+
+
+class TestBinutilsRendering:
+    def test_all_binutils_rendered(self, tmp_path: Path, toolchain_template: Path):
+        all_binutils = {
+            "ar": "/usr/bin/ar",
+            "ranlib": "/usr/bin/ranlib",
+            "nm": "/usr/bin/nm",
+            "strip": "/usr/bin/strip",
+            "objdump": "/usr/bin/objdump",
+            "objcopy": "/usr/bin/objcopy",
+            "readelf": "/usr/bin/readelf",
+            "ld": "/usr/bin/ld",
+        }
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(binutils=all_binutils)))
+        cfg = Config.from_yaml(config_path)
+        output = tmp_path / "rendered.cmake"
+        cfg.render_toolchain(output, template_path=toolchain_template)
+        content = output.read_text()
+        assert 'set(CMAKE_AR "/usr/bin/ar")' in content
+        assert 'set(CMAKE_RANLIB "/usr/bin/ranlib")' in content
+        assert 'set(CMAKE_NM "/usr/bin/nm")' in content
+        assert 'set(CMAKE_STRIP "/usr/bin/strip")' in content
+        assert 'set(CMAKE_OBJDUMP "/usr/bin/objdump")' in content
+        assert 'set(CMAKE_OBJCOPY "/usr/bin/objcopy")' in content
+        assert 'set(CMAKE_READELF "/usr/bin/readelf")' in content
+        assert 'set(CMAKE_LINKER "/usr/bin/ld")' in content
+
+    def test_partial_binutils_renders_only_specified(self, tmp_path: Path, toolchain_template: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(binutils={"ar": "/opt/bin/ar", "strip": "/opt/bin/strip"})))
+        cfg = Config.from_yaml(config_path)
+        output = tmp_path / "rendered.cmake"
+        cfg.render_toolchain(output, template_path=toolchain_template)
+        content = output.read_text()
+        assert 'set(CMAKE_AR "/opt/bin/ar")' in content
+        assert 'set(CMAKE_STRIP "/opt/bin/strip")' in content
+        assert "CMAKE_RANLIB" not in content
+        assert "CMAKE_NM" not in content
+        assert "CMAKE_LINKER" not in content
+
+    def test_no_binutils_key_omits_lines(self, tmp_path: Path, toolchain_template: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config()))
+        cfg = Config.from_yaml(config_path)
+        output = tmp_path / "rendered.cmake"
+        cfg.render_toolchain(output, template_path=toolchain_template)
+        content = output.read_text()
+        assert "CMAKE_AR" not in content
+        assert "CMAKE_LINKER" not in content
+
+    def test_empty_binutils_dict_omits_lines(self, tmp_path: Path, toolchain_template: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(binutils={})))
+        cfg = Config.from_yaml(config_path)
+        output = tmp_path / "rendered.cmake"
+        cfg.render_toolchain(output, template_path=toolchain_template)
+        content = output.read_text()
+        assert "CMAKE_AR" not in content
+
+    def test_binutils_property(self, tmp_path: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(binutils={"ar": "/usr/bin/ar"})))
+        cfg = Config.from_yaml(config_path)
+        assert cfg.binutils == {"ar": "/usr/bin/ar"}
+
+    def test_binutils_absent_returns_empty_dict(self, tmp_path: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config()))
+        cfg = Config.from_yaml(config_path)
+        assert cfg.binutils == {}
+
+
+class TestCMakeBinary:
+    def test_custom_cmake_binary_in_command(self, tmp_path: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(cmake="/opt/cmake/bin/cmake")))
+        cfg = Config.from_yaml(config_path)
+        cmd = cfg.cmake_configure_command()
+        assert cmd[0] == "/opt/cmake/bin/cmake"
+
+    def test_default_cmake_binary_when_absent(self, tmp_path: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config()))
+        cfg = Config.from_yaml(config_path)
+        cmd = cfg.cmake_configure_command()
+        assert cmd[0] == "cmake"
+
+    def test_cmake_binary_property(self, tmp_path: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(cmake="/opt/cmake/bin/cmake")))
+        cfg = Config.from_yaml(config_path)
+        assert cfg.cmake_binary == "/opt/cmake/bin/cmake"
+
+    def test_cmake_binary_default(self, tmp_path: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config()))
+        cfg = Config.from_yaml(config_path)
+        assert cfg.cmake_binary == "cmake"
+
+
+class TestCMakeEnv:
+    def test_path_string_prepended_to_existing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("PATH", "/system/bin")
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(env={"PATH": "/opt/a:/opt/b"})))
+        cfg = Config.from_yaml(config_path)
+        env = cfg.cmake_env()
+        assert env["PATH"].startswith(f"/opt/a:/opt/b{os.pathsep}")
+        assert env["PATH"].endswith("/system/bin")
+
+    def test_path_list_prepended_to_existing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("PATH", "/system/bin")
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(env={"PATH": ["/opt/a", "/opt/b"]})))
+        cfg = Config.from_yaml(config_path)
+        env = cfg.cmake_env()
+        assert env["PATH"].startswith(f"/opt/a{os.pathsep}/opt/b{os.pathsep}")
+        assert env["PATH"].endswith("/system/bin")
+
+    def test_non_path_var_overrides(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("AWS_REGION", "us-east-1")
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(env={"AWS_REGION": "eu-west-2"})))
+        cfg = Config.from_yaml(config_path)
+        env = cfg.cmake_env()
+        assert env["AWS_REGION"] == "eu-west-2"
+
+    def test_non_path_var_sets_new(self, tmp_path: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(env={"MY_CUSTOM_VAR": "hello"})))
+        cfg = Config.from_yaml(config_path)
+        env = cfg.cmake_env()
+        assert env["MY_CUSTOM_VAR"] == "hello"
+
+    def test_empty_env_unchanged(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("PATH", "/system/bin")
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(env={})))
+        cfg = Config.from_yaml(config_path)
+        env = cfg.cmake_env()
+        assert env["PATH"] == "/system/bin"
+
+    def test_absent_env_unchanged(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("PATH", "/system/bin")
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config()))
+        cfg = Config.from_yaml(config_path)
+        env = cfg.cmake_env()
+        assert env["PATH"] == "/system/bin"
+
+    def test_returns_copy_not_original(self, tmp_path: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(env={"FOO": "bar"})))
+        cfg = Config.from_yaml(config_path)
+        env = cfg.cmake_env()
+        env["MUTATED"] = "yes"
+        assert "MUTATED" not in os.environ
+
+    def test_env_property(self, tmp_path: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config(env={"AWS_REGION": "eu-west-2", "PATH": "/opt/bin"})))
+        cfg = Config.from_yaml(config_path)
+        assert cfg.env == {"AWS_REGION": "eu-west-2", "PATH": "/opt/bin"}
+
+    def test_env_absent_returns_empty_dict(self, tmp_path: Path):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(yaml.dump(_minimal_config()))
+        cfg = Config.from_yaml(config_path)
+        assert cfg.env == {}
+
+    def test_mixed_path_and_overrides(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("PATH", "/system/bin")
+        monkeypatch.setenv("OLD_VAR", "old")
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            yaml.dump(_minimal_config(env={"PATH": "/opt/tools", "AWS_REGION": "eu-west-2", "OLD_VAR": "new"}))
+        )
+        cfg = Config.from_yaml(config_path)
+        env = cfg.cmake_env()
+        assert env["PATH"].startswith(f"/opt/tools{os.pathsep}")
+        assert env["AWS_REGION"] == "eu-west-2"
+        assert env["OLD_VAR"] == "new"

@@ -65,7 +65,7 @@ def configure(cfg: Config, *, force: bool = False) -> None:
     logger.info("Running cmake configure...")
     logger.info("  %s", " ".join(cmd))
     start = time.monotonic()
-    result = subprocess.run(cmd, check=False)
+    result = subprocess.run(cmd, check=False, env=cfg.cmake_env())
     elapsed = time.monotonic() - start
     logger.info("Configure completed in %.1fs (exit code %d)", elapsed, result.returncode)
 

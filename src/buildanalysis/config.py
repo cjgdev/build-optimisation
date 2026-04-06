@@ -9,6 +9,18 @@ from typing import Any
 
 import yaml
 
+_BINUTILS_CMAKE_VARS: dict[str, str] = {
+    "addr2line": "CMAKE_ADDR2LINE",
+    "ar": "CMAKE_AR",
+    "ranlib": "CMAKE_RANLIB",
+    "readelf": "CMAKE_READELF",
+    "nm": "CMAKE_NM",
+    "objdump": "CMAKE_OBJDUMP",
+    "objcopy": "CMAKE_OBJCOPY",
+    "strip": "CMAKE_STRIP",
+    "linker": "CMAKE_LINKER",
+}
+
 
 class ConfigError(ValueError):
     """Raised when config.yaml is missing required fields or has invalid values."""
@@ -64,12 +76,24 @@ class Config:
         return self._resolve_path(self._data.get("processed_data_dir", "./data/processed"))  # type: ignore[return-value]
 
     @property
+    def cmake_binary(self) -> str:
+        return self._data.get("cmake") or "cmake"
+
+    @property
     def cc(self) -> str:
         return self._data["cc"]
 
     @property
     def cxx(self) -> str:
         return self._data["cxx"]
+
+    @property
+    def binutils(self) -> dict[str, str]:
+        return self._data.get("binutils") or {}
+
+    @property
+    def env(self) -> dict[str, str | list[str]]:
+        return self._data.get("env") or {}
 
     @property
     def cmake_prefix_path(self) -> list[str]:
@@ -105,9 +129,18 @@ class Config:
         if template_path is None:
             template_path = self._config_dir / "toolchain.cmake"
         tmpl = template_path.read_text()
-        rendered = string.Template(tmpl.replace("@CC@", "${CC}").replace("@CXX@", "${CXX}")).safe_substitute(
-            CC=self.cc, CXX=self.cxx
-        )
+
+        # Build optional binutils block
+        binutils_lines: list[str] = []
+        for key, cmake_var in _BINUTILS_CMAKE_VARS.items():
+            path = self.binutils.get(key)
+            if path:
+                binutils_lines.append(f'set({cmake_var} "{path}")')
+        binutils_block = "\n".join(binutils_lines)
+
+        rendered = string.Template(
+            tmpl.replace("@CC@", "${CC}").replace("@CXX@", "${CXX}").replace("@BINUTILS_LINES@", "${BINUTILS_LINES}")
+        ).safe_substitute(CC=self.cc, CXX=self.cxx, BINUTILS_LINES=binutils_block)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(rendered)
 
@@ -122,7 +155,7 @@ class Config:
             toolchain_path = self.build_dir / "toolchain.cmake"
 
         cmd = [
-            "cmake",
+            self.cmake_binary,
             "-S",
             str(self.source_dir),
             "-B",
@@ -158,3 +191,19 @@ class Config:
         if targets:
             cmd.extend(targets)
         return cmd
+
+    def cmake_env(self) -> dict[str, str]:
+        """Return os.environ copy with config env overrides applied.
+
+        Most variables replace any existing value.  PATH is special:
+        configured entries are prepended to the inherited PATH.
+        """
+        result = os.environ.copy()
+        for key, value in self.env.items():
+            if key == "PATH":
+                prepended = os.pathsep.join(value) if isinstance(value, list) else value
+                existing = result.get("PATH", "")
+                result["PATH"] = f"{prepended}{os.pathsep}{existing}" if existing else prepended
+            else:
+                result[key] = str(value)
+        return result
