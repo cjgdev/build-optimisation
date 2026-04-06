@@ -314,7 +314,7 @@ def _extract_dep_ids(data: dict, key: str) -> tuple[str, ...] | None:
     entries = data.get(key)
     if entries is None:
         return None
-    return tuple(e["id"] for e in entries)
+    return tuple(e["id"] for e in entries if "id" in e)
 
 
 def _extract_edges(

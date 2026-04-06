@@ -7,6 +7,7 @@ import pytest
 from buildanalysis.cmake_file_api import (
     CodeModel,
     FileAPIError,
+    _extract_dep_ids,
     build_codegen_inventory,
     build_file_index,
     create_query_files,
@@ -292,3 +293,59 @@ class TestReconstructCompileCommand:
         cmd = reconstruct_compile_command(src, core, "/usr/bin/g++")
         # Should contain at least some flags
         assert "-std=" in cmd or "gnu++" in cmd
+
+
+class TestExtractDepIds:
+    """Unit tests for _extract_dep_ids handling of mixed target/non-target entries."""
+
+    def test_returns_none_when_key_absent(self):
+        assert _extract_dep_ids({}, "linkLibraries") is None
+
+    def test_extracts_ids_from_target_entries(self):
+        data = {"linkLibraries": [{"id": "A::@abc"}, {"id": "B::@def"}]}
+        assert _extract_dep_ids(data, "linkLibraries") == ("A::@abc", "B::@def")
+
+    def test_skips_non_target_items(self):
+        data = {
+            "linkLibraries": [
+                {"id": "A::@abc"},
+                {"item": "-lpthread"},
+                {"id": "B::@def"},
+                {"item": "/usr/lib/libz.so"},
+            ]
+        }
+        assert _extract_dep_ids(data, "linkLibraries") == ("A::@abc", "B::@def")
+
+    def test_all_non_target_items_returns_empty_tuple(self):
+        data = {"linkLibraries": [{"item": "-lpthread"}, {"item": "-lm"}]}
+        assert _extract_dep_ids(data, "linkLibraries") == ()
+
+    def test_empty_list_returns_empty_tuple(self):
+        data = {"linkLibraries": []}
+        assert _extract_dep_ids(data, "linkLibraries") == ()
+
+
+class TestNonTargetLinkLibraries:
+    """Integration tests: fixture includes non-target items in app's linkLibraries."""
+
+    def test_parse_reply_succeeds_with_non_target_items(self, codemodel: CodeModel):
+        # The fixture has {"item": "-lpthread"} and {"item": "/usr/lib/libz.so"}
+        # in app's linkLibraries — parsing must not raise.
+        assert "app" in codemodel.targets
+
+    def test_non_target_items_do_not_create_edges(self, codemodel: CodeModel):
+        app_link_edges = [
+            e for e in codemodel.edges if e.source_target == "app" and e.dependency_type == "link"
+        ]
+        dest_targets = {e.dest_target for e in app_link_edges}
+        # -lpthread and /usr/lib/libz.so should NOT appear as edge destinations
+        assert "-lpthread" not in dest_targets
+        assert "/usr/lib/libz.so" not in dest_targets
+
+    def test_target_link_edges_still_present(self, codemodel: CodeModel):
+        app_link_edges = [
+            e for e in codemodel.edges if e.source_target == "app" and e.dependency_type == "link"
+        ]
+        dest_targets = {e.dest_target for e in app_link_edges}
+        assert "engine" in dest_targets
+        assert "logging" in dest_targets

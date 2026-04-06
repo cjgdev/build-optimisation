@@ -272,7 +272,7 @@
 		],
 		"language" : "CXX"
 	},
-	"linkLibraries" : 
+	"linkLibraries" :
 	[
 		{
 			"backtrace" : 2,
@@ -281,6 +281,12 @@
 		{
 			"backtrace" : 2,
 			"id" : "logging::@48bfaf6ebac2073e8858"
+		},
+		{
+			"item" : "-lpthread"
+		},
+		{
+			"item" : "/usr/lib/libz.so"
 		}
 	],
 	"name" : "app",

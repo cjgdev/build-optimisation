@@ -189,7 +189,7 @@ class TestBinutilsRendering:
             "objdump": "/usr/bin/objdump",
             "objcopy": "/usr/bin/objcopy",
             "readelf": "/usr/bin/readelf",
-            "ld": "/usr/bin/ld",
+            "linker": "/usr/bin/ld",
         }
         config_path = tmp_path / "config.yaml"
         config_path.write_text(yaml.dump(_minimal_config(binutils=all_binutils)))
