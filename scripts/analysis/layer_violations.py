@@ -11,6 +11,10 @@ any target with no dependencies, and a target's layer is one plus the max
 layer of its dependencies. A violation is any edge whose destination is at
 a higher layer than, or the same layer as, its source.
 
+When a scope is supplied the analysis is restricted to the induced subgraph
+(scoped targets PLUS their transitive dependencies, so the subgraph is
+closed under the build relation).
+
 Attributes consumed:
     target_metrics, edge_list.
 """
@@ -28,12 +32,22 @@ from buildanalysis.graph import (  # noqa: E402
     compute_layer_assignments,
     find_layer_violations,
 )
-from scripts.analysis._common import add_dataset_args, add_output_args, emit, emit_kv, load_dataset  # noqa: E402
+from scripts.analysis._common import (  # noqa: E402
+    add_dataset_args,
+    add_output_args,
+    add_scope_args,
+    emit,
+    emit_kv,
+    emit_scope_header,
+    load_dataset,
+    resolve_scope,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_dataset_args(parser)
+    add_scope_args(parser)
     add_output_args(parser, default_limit=50)
     parser.add_argument(
         "--violation-type",
@@ -44,7 +58,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     ds = load_dataset(args)
+    scope = resolve_scope(args, ds)
+    emit_scope_header(scope, args)
+
     bg = build_dependency_graph(ds.target_metrics, ds.edge_list)
+    bg = bg.subgraph(scope)
     layers = compute_layer_assignments(bg)
     violations = find_layer_violations(bg, layers)
 

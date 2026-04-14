@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 # Support direct script invocation (python scripts/analysis/hotspots.py).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -31,13 +32,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from scripts.analysis._common import (  # noqa: E402
     add_dataset_args,
     add_output_args,
+    add_scope_args,
     emit,
+    emit_scope_header,
     load_dataset,
     minmax_normalise,
+    resolve_scope,
 )
 
 
-def compute_hotspots(target_metrics, min_build_time_ms: int = 0, exclude_codegen: bool = False):
+def compute_hotspots(target_metrics: pd.DataFrame) -> pd.DataFrame:
     """Compute a composite refactor-value score per target.
 
     The score combines build cost, churn, and blast radius; each axis is
@@ -45,11 +49,6 @@ def compute_hotspots(target_metrics, min_build_time_ms: int = 0, exclude_codegen
     than a single dominant attribute.
     """
     tm = target_metrics.copy()
-    if exclude_codegen:
-        tm = tm[tm["codegen_ratio"] < 0.5]
-    if min_build_time_ms > 0:
-        tm = tm[tm["total_build_time_ms"].fillna(0) >= min_build_time_ms]
-
     if tm.empty:
         return tm.assign(hotspot_score=[])
 
@@ -86,26 +85,16 @@ def compute_hotspots(target_metrics, min_build_time_ms: int = 0, exclude_codegen
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_dataset_args(parser)
+    add_scope_args(parser)
     add_output_args(parser, default_limit=20)
-    parser.add_argument(
-        "--min-build-time-ms",
-        type=int,
-        default=0,
-        help="Ignore targets that build in less than this many ms (default: 0).",
-    )
-    parser.add_argument(
-        "--exclude-codegen",
-        action="store_true",
-        help="Exclude targets that are mostly generated (codegen_ratio >= 0.5).",
-    )
     args = parser.parse_args(argv)
 
     ds = load_dataset(args)
-    ranked = compute_hotspots(
-        ds.target_metrics,
-        min_build_time_ms=args.min_build_time_ms,
-        exclude_codegen=args.exclude_codegen,
-    )
+    scope = resolve_scope(args, ds)
+    emit_scope_header(scope, args)
+
+    tm = scope.filter_targets(ds.target_metrics)
+    ranked = compute_hotspots(tm)
     emit(ranked, args, title="Refactor hotspots (cost × churn × blast radius)")
     return 0
 

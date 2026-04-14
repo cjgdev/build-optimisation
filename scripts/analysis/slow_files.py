@@ -31,7 +31,17 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from scripts.analysis._common import add_dataset_args, add_output_args, emit, load_dataset  # noqa: E402
+from scripts.analysis._common import (  # noqa: E402
+    add_dataset_args,
+    add_file_filter_args,
+    add_output_args,
+    add_scope_args,
+    apply_file_filters,
+    emit,
+    emit_scope_header,
+    load_dataset,
+    resolve_scope,
+)
 
 
 def _slowest(fm: pd.DataFrame) -> pd.DataFrame:
@@ -96,6 +106,8 @@ def _low_throughput(fm: pd.DataFrame, min_code_lines: int) -> pd.DataFrame:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_dataset_args(parser)
+    add_scope_args(parser)
+    add_file_filter_args(parser)
     add_output_args(parser, default_limit=20)
     parser.add_argument(
         "--view",
@@ -104,39 +116,36 @@ def main(argv: list[str] | None = None) -> int:
         help="Which ranking to show (default: all).",
     )
     parser.add_argument(
-        "--min-source-bytes",
+        "--preprocessor-min-source-bytes",
         type=int,
         default=512,
-        help="Minimum source size in bytes for preprocessor_bloat view (avoids trivial files).",
+        help="Minimum source size in bytes for the preprocessor_bloat view (avoids trivial files).",
     )
     parser.add_argument(
-        "--min-code-lines",
+        "--low-throughput-min-lines",
         type=int,
         default=50,
-        help="Minimum code lines for low_throughput view (avoids trivial files).",
-    )
-    parser.add_argument(
-        "--exclude-generated",
-        action="store_true",
-        help="Exclude generated source files from all rankings.",
+        help="Minimum code lines for the low_throughput view (avoids trivial files).",
     )
     args = parser.parse_args(argv)
 
     ds = load_dataset(args)
-    fm = ds.file_metrics
-    if args.exclude_generated and "is_generated" in fm.columns:
-        fm = fm[~fm["is_generated"]]
+    scope = resolve_scope(args, ds)
+    emit_scope_header(scope, args)
+
+    fm = scope.filter_targets(ds.file_metrics)
+    fm = apply_file_filters(fm, args)
 
     views = {
         "slowest": (_slowest(fm), "Slowest files (raw compile_time_ms)"),
         "template_heavy": (_template_heavy(fm), "Template-instantiation heavy files"),
         "preprocessor_bloat": (
-            _preprocessor_bloat(fm, args.min_source_bytes),
-            f"Preprocessor-bloat files (source ≥ {args.min_source_bytes} bytes)",
+            _preprocessor_bloat(fm, args.preprocessor_min_source_bytes),
+            f"Preprocessor-bloat files (source ≥ {args.preprocessor_min_source_bytes} bytes)",
         ),
         "low_throughput": (
-            _low_throughput(fm, args.min_code_lines),
-            f"Low compile throughput (lines/sec; code_lines ≥ {args.min_code_lines})",
+            _low_throughput(fm, args.low_throughput_min_lines),
+            f"Low compile throughput (lines/sec; code_lines ≥ {args.low_throughput_min_lines})",
         ),
     }
 

@@ -15,6 +15,10 @@ Output sections:
 * Slack leaders — targets with the largest slack (safest to delay or to
   split link dependencies from).
 
+When a scope is supplied the analysis is restricted to the induced subgraph
+(scoped targets PLUS their transitive dependencies, so the subgraph is
+closed under the build relation).
+
 Attributes consumed:
     target_metrics: cmake_target, total_build_time_ms, target_type.
     edge_list: source_target, dest_target, is_direct.
@@ -30,12 +34,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from buildanalysis.build import compute_critical_path  # noqa: E402
 from buildanalysis.graph import build_dependency_graph  # noqa: E402
-from scripts.analysis._common import add_dataset_args, add_output_args, emit, emit_kv, load_dataset  # noqa: E402
+from scripts.analysis._common import (  # noqa: E402
+    add_dataset_args,
+    add_output_args,
+    add_scope_args,
+    emit,
+    emit_kv,
+    emit_scope_header,
+    load_dataset,
+    resolve_scope,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_dataset_args(parser)
+    add_scope_args(parser)
     add_output_args(parser, default_limit=25)
     parser.add_argument(
         "--time-col",
@@ -51,7 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     ds = load_dataset(args)
+    scope = resolve_scope(args, ds)
+    emit_scope_header(scope, args)
+
     bg = build_dependency_graph(ds.target_metrics, ds.edge_list)
+    bg = bg.subgraph(scope)  # no-op when scope is global
     result = compute_critical_path(bg, ds.target_metrics, time_col=args.time_col)
 
     slack = result.target_slack.copy()

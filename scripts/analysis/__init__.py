@@ -4,6 +4,17 @@ Each module in this package is a self-contained CLI that answers a specific
 question about a collected build snapshot. All scripts read parquet data
 produced by ``scripts/consolidate/``.
 
+Ranking scripts (hotspots, critical_path, slow_files, header_hotlist,
+ownership_risk, layer_violations) share a standard scope vocabulary:
+identity (``--target`` / ``--target-glob`` / ``--target-type``), structural
+(``--source-dir`` / ``--module`` / ``--team``), relationship (``--build-set``
+/ ``--impact-set``), and thresholds (``--min-target-build-time-ms``, etc.).
+Scope flags compose as intersection, with excludes applied last. See
+``_common.add_scope_args`` for the full vocabulary.
+
+Single-target drill-downs (target_summary, rebuild_impact) use their own
+``--target`` / ``--file`` selection and do not apply the shared scope.
+
 Scripts
 -------
 hotspots

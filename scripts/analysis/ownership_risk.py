@@ -29,18 +29,30 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from buildanalysis.git import compute_file_to_target_map, compute_ownership_concentration  # noqa: E402
-from scripts.analysis._common import add_dataset_args, add_output_args, emit, load_dataset  # noqa: E402
+from scripts.analysis._common import (  # noqa: E402
+    add_dataset_args,
+    add_output_args,
+    add_scope_args,
+    emit,
+    emit_scope_header,
+    load_dataset,
+    resolve_scope,
+)
 
 
 def compute_risk(
     git_commit_log: pd.DataFrame,
     file_metrics: pd.DataFrame,
     target_metrics: pd.DataFrame,
-    min_build_time_ms: int = 0,
     max_contributors: int | None = None,
     min_top_share: float = 0.0,
 ) -> pd.DataFrame:
-    """Return a per-target ownership-risk table sorted by severity."""
+    """Return a per-target ownership-risk table sorted by severity.
+
+    The ``max_contributors`` / ``min_top_share`` parameters are severity
+    filters applied AFTER scope resolution — they narrow the output to
+    genuinely concentrated targets rather than scoping the analysis.
+    """
     file_to_target = compute_file_to_target_map(file_metrics)
     concentration = compute_ownership_concentration(git_commit_log, file_to_target)
 
@@ -53,8 +65,6 @@ def compute_risk(
     bt = merged["total_build_time_ms"].fillna(0).astype(float)
     merged["risk_score"] = merged["top_contributor_share"] * merged["gini"] * (bt.pow(0.5))
 
-    if min_build_time_ms > 0:
-        merged = merged[bt >= min_build_time_ms]
     if max_contributors is not None:
         merged = merged[merged["n_contributors"] <= max_contributors]
     if min_top_share > 0:
@@ -77,33 +87,40 @@ def compute_risk(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_dataset_args(parser)
+    add_scope_args(parser)
     add_output_args(parser, default_limit=25)
-    parser.add_argument(
-        "--min-build-time-ms",
-        type=int,
-        default=0,
-        help="Ignore targets that build in less than this many ms (default: 0).",
-    )
     parser.add_argument(
         "--max-contributors",
         type=int,
         default=None,
-        help="Optional ceiling on number of contributors (flag sole/duo-owned targets).",
+        help="Severity filter: only flag targets with at most this many contributors (sole/duo-owned).",
     )
     parser.add_argument(
         "--min-top-share",
         type=float,
         default=0.0,
-        help="Minimum top-contributor commit share (0.0-1.0) to include (default: 0).",
+        help="Severity filter: require top-contributor commit share ≥ this (0.0-1.0).",
     )
     args = parser.parse_args(argv)
 
     ds = load_dataset(args)
+    scope = resolve_scope(args, ds)
+    emit_scope_header(scope, args)
+
+    tm_scoped = scope.filter_targets(ds.target_metrics)
+    # Git log lives at file granularity, so scope via file_metrics too.
+    fm_scoped = scope.filter_targets(ds.file_metrics)
+    scoped_files = set(fm_scoped["source_file"])
+    git_scoped = (
+        ds.git_commit_log[ds.git_commit_log["source_file"].isin(scoped_files)]
+        if scope.targets is not None
+        else ds.git_commit_log
+    )
+
     result = compute_risk(
-        ds.git_commit_log,
-        ds.file_metrics,
-        ds.target_metrics,
-        min_build_time_ms=args.min_build_time_ms,
+        git_scoped,
+        fm_scoped,
+        tm_scoped,
         max_contributors=args.max_contributors,
         min_top_share=args.min_top_share,
     )

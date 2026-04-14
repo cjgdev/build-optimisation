@@ -14,6 +14,10 @@ Transitive fan-in captures how many translation units ultimately pull a
 header in; size captures how much work the preprocessor does each time;
 commits capture instability (changes invalidate everyone who includes it).
 
+When a target scope is supplied, the rankings are restricted to headers
+owned by scoped targets (fan-in is still computed against the full include
+graph so the impact figure reflects reality).
+
 Attributes consumed:
     header_edges, header_metrics, file_metrics (for git churn via n_commits
     aggregated over includers).
@@ -31,7 +35,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from buildanalysis.graph import build_include_graph  # noqa: E402
 from buildanalysis.headers import compute_header_impact_score, compute_include_fan_metrics  # noqa: E402
-from scripts.analysis._common import add_dataset_args, add_output_args, emit, load_dataset  # noqa: E402
+from scripts.analysis._common import (  # noqa: E402
+    add_dataset_args,
+    add_file_filter_args,
+    add_output_args,
+    add_scope_args,
+    apply_file_filters,
+    emit,
+    emit_scope_header,
+    load_dataset,
+    resolve_scope,
+)
 
 
 def _header_git_churn(file_metrics: pd.DataFrame, header_metrics: pd.DataFrame) -> pd.DataFrame:
@@ -79,6 +93,8 @@ def compute_hotlist(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_dataset_args(parser)
+    add_scope_args(parser)
+    add_file_filter_args(parser)
     add_output_args(parser, default_limit=25)
     parser.add_argument(
         "--include-system",
@@ -88,12 +104,28 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     ds = load_dataset(args)
+    scope = resolve_scope(args, ds)
+    emit_scope_header(scope, args)
+
+    # Fan-in is computed against the full include graph so impact figures
+    # reflect reality; we filter the output at the end.
     result = compute_hotlist(
         ds.header_edges,
         ds.header_metrics,
         ds.file_metrics,
         exclude_system=not args.include_system,
     )
+
+    # Restrict output to headers owned by scoped targets (if any).
+    if scope.targets is not None and "cmake_target" in result.columns:
+        result = result[result["cmake_target"].isin(scope.targets)].reset_index(drop=True)
+
+    # Apply file-level filters against the header path (stored in "file").
+    if "file" in result.columns:
+        adapter = result.rename(columns={"file": "source_file"})
+        adapter = apply_file_filters(adapter, args)
+        result = result.loc[adapter.index].reset_index(drop=True)
+
     emit(result, args, title="Top headers by build impact (fan-in × size × churn)")
     return 0
 
